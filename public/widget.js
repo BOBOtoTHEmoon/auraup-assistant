@@ -563,10 +563,10 @@
       );
 
     element.innerHTML =
-      esc(text).replace(
-        /\n/g,
-        '<br>'
-      );
+      esc(text)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*\*/g, '')
+        .replace(/\n/g, '<br>');
 
     bodyEl.appendChild(
       element

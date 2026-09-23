@@ -26,6 +26,15 @@ const MODEL =
 const WHATSAPP = '+234 913 039 3648';
 const EMAIL = 'hello@auraupstore.com';
 
+const BRAND_FACTS =
+  'BRAND FACTS (verified, always known):\n' +
+  '- AuraUP is a Lagos-based luxury athleisure brand founded in 2025. Tagline: "Quiet Strength in Motion".\n' +
+  '- Physical store: Shop 39, Westbrook Mall, Chisco, Ikate, Lekki, Lagos.\n' +
+  '- Store hours: Monday to Sunday, 10am to 7pm.\n' +
+  '- Contact: WhatsApp +234 913 039 3648, email hello@auraupstore.com, Instagram @auraupstore.\n'+
+  '- Founder: AuraUP was founded by Ebuka in Lagos in 2025. He built it around subtle, understated luxury: premium materials and timeless everyday pieces.\n' +
+  '- The brand launched with a Sip & Shop event at Westbrook Mall, Ikate, Lagos.\n' ;
+
 
 // ==================================================
 // CORS
@@ -1003,8 +1012,13 @@ export default async function handler(
 
       `- Never invent places, people, events or facts you cannot verify.\n` +
 
+      `- Treat BRAND FACTS below as verified truth you always know. Use it for store address, hours, contact and brand-story questions.\n` +
+
+      `- Write in plain text only. No Markdown: do not use ** for bold, no # headings, no asterisks or bullet symbols. Use short plain sentences.\n` +
+
       `- Keep the answer to a few sentences unless the shopper clearly asks for more detail.\n\n` +
 
+      BRAND_FACTS + `\n` +
 
       `STORE INFO:\n` +
 
