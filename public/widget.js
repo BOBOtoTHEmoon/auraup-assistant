@@ -296,7 +296,7 @@
       'border-radius:22px;' +
       'padding:11px 16px;' +
       'font-family:Montserrat,system-ui,sans-serif;' +
-      'font-size:.7rem;' +
+            'font-size:16px;' +
       'letter-spacing:.02em;' +
       'color:#2a2a2a;' +
       'outline:none;' +
