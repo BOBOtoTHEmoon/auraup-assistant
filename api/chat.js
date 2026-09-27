@@ -50,7 +50,777 @@ const BRAND_FACTS =
 // they just fall back to their names.
 // ==================================================
 
-const PRODUCT_PROFILES = {};
+const PRODUCT_PROFILES = {
+  "auraup-flex-tee-white": {
+    "category": "top",
+    "what": "crew neck short sleeve t-shirt",
+    "colour": "white",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "chinos, joggers, shorts, blazers for layering"
+  },
+  "auraup-tank-top-gray": {
+    "category": "top",
+    "what": "sleeveless performance tank top",
+    "colour": "white",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running"
+    ],
+    "pairs_with": "athletic shorts, joggers, or performance leggings for training"
+  },
+  "auraup-track-jacket-copy": {
+    "category": "outerwear",
+    "what": "Track jacket with contrast stripe sleeves",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "Neutral joggers, leggings, or relaxed trousers for versatile styling"
+  },
+  "auraup-classics-copy": {
+    "category": "top",
+    "what": "Classic crew-neck short-sleeve t-shirt",
+    "colour": "white",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "lounge",
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "Tailored trousers, jeans, shorts, skirts, blazers, layering pieces"
+  },
+  "auraup-classic-black-copy": {
+    "category": "top",
+    "what": "classic crew neck short sleeve t-shirt",
+    "colour": "light beige",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "tailored trousers, denim, skirts, layered under jackets"
+  },
+  "auraup-ardent-tangerine": {
+    "category": "top",
+    "what": "color-block short-sleeve polo shirt",
+    "colour": "ember and white",
+    "colour_family": "accent",
+    "occasions": [
+      "everyday",
+      "going_out",
+      "work",
+      "travel"
+    ],
+    "pairs_with": "neutral trousers, chinos, or relaxed shorts for versatile styling"
+  },
+  "auraup-midlayer-long-sleeve-red": {
+    "category": "top",
+    "what": "long sleeve quarter zip pullover midlayer",
+    "colour": "coral red",
+    "colour_family": "accent",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running",
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "joggers, leggings, shorts, or layered under jackets"
+  },
+  "auraup-ardent-sage": {
+    "category": "top",
+    "what": "color-block short sleeve polo shirt",
+    "colour": "sage green and white",
+    "colour_family": "accent",
+    "occasions": [
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "neutral chinos, tailored trousers, or casual shorts for versatile styling"
+  },
+  "auraup-solace-boxers-olive": {
+    "category": "underwear",
+    "what": "performance boxer shorts",
+    "colour": "olive",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running",
+      "lounge",
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "t-shirts, shirts, or worn alone for comfort and confidence"
+  },
+  "auraup-solace-boxers-slate": {
+    "category": "underwear",
+    "what": "performance boxer shorts",
+    "colour": "slate",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running",
+      "lounge",
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "wear under any outfit for comfortable all-day support"
+  },
+  "auraup-panel-cap-green": {
+    "category": "accessory",
+    "what": "two-tone panel cap with embroidered logo",
+    "colour": "green and cream",
+    "colour_family": "accent",
+    "occasions": [
+      "everyday",
+      "lounge",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "casual tops, athleisure sets, relaxed weekend outfits"
+  },
+  "auraup-solace-boxers-navy-blue": {
+    "category": "underwear",
+    "what": "mid-length performance boxer shorts",
+    "colour": "navy blue",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running",
+      "lounge",
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "any outfit as a base layer for comfort and support"
+  },
+  "auraup-quater-zip-track-jacket-copy": {
+    "category": "outerwear",
+    "what": "half-zip track jacket with contrast sleeve stripe",
+    "colour": "forest green",
+    "colour_family": "accent",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "joggers, chinos, or relaxed trousers for elevated casual wear"
+  },
+  "auraup-apex-hoodie": {
+    "category": "outerwear",
+    "what": "oversized washed heavyweight hoodie",
+    "colour": "charcoal",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "joggers, relaxed trousers, or oversized sweatpants for effortless style"
+  },
+  "auraup-motion-tee": {
+    "category": "top",
+    "what": "short sleeve crew neck performance t-shirt",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "running",
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "joggers, track pants, or casual shorts for versatile styling"
+  },
+  "aurauo-court-cap": {
+    "category": "accessory",
+    "what": "lightweight performance baseball cap",
+    "colour": "white",
+    "colour_family": "neutral",
+    "occasions": [
+      "tennis",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "athleisure sets, casual tops, sportswear, and polished everyday outfits"
+  },
+  "auraup-panel-cap": {
+    "category": "accessory",
+    "what": "panel cut baseball cap with embroidered logo",
+    "colour": "dark green",
+    "colour_family": "accent",
+    "occasions": [
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "casual tops, athleisure sets, relaxed weekend outfits"
+  },
+  "auraup-regent-tee": {
+    "category": "top",
+    "what": "Crew neck t-shirt with contrast sleeve trim",
+    "colour": "cream",
+    "colour_family": "neutral",
+    "occasions": [
+      "everyday",
+      "lounge",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "Neutral bottoms, relaxed shorts, or tailored trousers for versatile styling"
+  },
+  "auraup-eleve": {
+    "category": "top",
+    "what": "washed heritage t-shirt with signature motto",
+    "colour": "charcoal grey",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "relaxed trousers, jeans, cargo pants, or layered under jackets"
+  },
+  "auraup-solace-boxers": {
+    "category": "underwear",
+    "what": "black performance boxer briefs",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running",
+      "lounge",
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "worn under any outfit for comfort and support"
+  },
+  "aura-up-orion": {
+    "category": "bottom",
+    "what": "wide-leg charcoal sweatpants with tapered ankles",
+    "colour": "charcoal grey",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "oversized tees, crop tops, sneakers, and luxury jackets"
+  },
+  "auraup-panel-cap-1": {
+    "category": "accessory",
+    "what": "panel cap with embroidered logo",
+    "colour": "red",
+    "colour_family": "accent",
+    "occasions": [
+      "gym",
+      "lounge",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "athleisure fits, casual wear, tracksuits, and everyday outfits"
+  },
+  "auraup-epoque-tee": {
+    "category": "top",
+    "what": "washed heritage crew neck t-shirt",
+    "colour": "stone",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "tailored trousers, relaxed jeans, linen shorts, minimalist sneakers"
+  },
+  "auraup-crop-tee": {
+    "category": "top",
+    "what": "black and white color-block crop athletic tee",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running",
+      "everyday"
+    ],
+    "pairs_with": "high-waisted leggings, athletic shorts, or layered under jackets"
+  },
+  "auraup-washed-pink-joggers": {
+    "category": "bottom",
+    "what": "relaxed wide-leg sweatpants with soft lived-in wash",
+    "colour": "pink",
+    "colour_family": "accent",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "oversized tees, cropped tanks, sneakers, slides"
+  },
+  "auraup-strap-camisole": {
+    "category": "top",
+    "what": "sleeveless fitted cami with contrast binding",
+    "colour": "cobalt blue",
+    "colour_family": "accent",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running"
+    ],
+    "pairs_with": "high-waisted leggings, joggers, or athletic shorts"
+  },
+  "auraup-black-swaetshirt-zip-up": {
+    "category": "outerwear",
+    "what": "Half-zip quarter-zip track jacket with contrast stripes",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "joggers, track pants, or tailored trousers for versatile styling"
+  },
+  "auraup-panelled-jersey": {
+    "category": "top",
+    "what": "Panelled polo shirt with contrast collar and cuffs",
+    "colour": "white",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "Neutral trousers, chinos, or relaxed shorts for casual elegance"
+  },
+  "auraup-monogram-hoodie": {
+    "category": "bottom",
+    "what": "relaxed monogram print shorts",
+    "colour": "cream",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "matching cropped pullover or oversized tees for effortless coordination"
+  },
+  "auraup-heather-grey-joggers-v2": {
+    "category": "bottom",
+    "what": "relaxed wide-leg heather grey sweatpants",
+    "colour": "light heather grey",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "oversized tees, crop tops, sneakers, minimal accessories"
+  },
+  "auraup-raw-hem-short": {
+    "category": "bottom",
+    "what": "relaxed raw hem shorts",
+    "colour": "sand",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "crop tops, oversized tees, tank tops, sneakers, slides"
+  },
+  "auraup-sweatpants-in-vintage-blue": {
+    "category": "bottom",
+    "what": "relaxed wide-leg sweatpants with faded vintage wash",
+    "colour": "light blue",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "oversized tops, cropped tees, sneakers, minimal accessories"
+  },
+  "auraup-plain-black-sport-sport": {
+    "category": "bottom",
+    "what": "lightweight athletic shorts with drawcord waist",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running"
+    ],
+    "pairs_with": "tank tops, t-shirts, and athletic jackets for training"
+  },
+  "auraup-elevated-camo-wine-short-sleeve": {
+    "category": "top",
+    "what": "V-neck short sleeve t-shirt",
+    "colour": "red",
+    "colour_family": "accent",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "neutral bottoms, sneakers, or casual wear for relaxed settings"
+  },
+  "auraup-solitaire-black-tee": {
+    "category": "top",
+    "what": "crew neck t-shirt with embroidered text detail",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "tailored trousers, relaxed denim, neutral joggers, minimalist sneakers"
+  },
+  "auraup-next": {
+    "category": "socks",
+    "what": "white ribbed crew socks with small logo",
+    "colour": "white",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running",
+      "lounge",
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "sneakers, trainers, athletic wear, casual outfits, loafers"
+  },
+  "auraup-sport-plain-black-joggers": {
+    "category": "bottom",
+    "what": "relaxed tapered sweatpants",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "oversized tees, tanks, hoodies, trainers for relaxed styling"
+  },
+  "auraup-wine-joggers": {
+    "category": "bottom",
+    "what": "relaxed wide-leg sweatpants with contrast stripe detail",
+    "colour": "wine",
+    "colour_family": "accent",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "oversized hoodies, cropped tees, luxury sneakers, structured jackets"
+  },
+  "auraup-ash-sweatshirt": {
+    "category": "outerwear",
+    "what": "relaxed zip-up sweatshirt jacket with collar",
+    "colour": "charcoal",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "joggers, chinos, or tailored trousers for versatile styling"
+  },
+  "auraup-visor": {
+    "category": "accessory",
+    "what": "Black padded visor with embroidered logo",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running",
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "athletic wear, casual tops, and workout outfits for sun protection"
+  },
+  "auraup-white-shorts": {
+    "category": "bottom",
+    "what": "lightweight training shorts with drawcord waist",
+    "colour": "cream",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running",
+      "everyday"
+    ],
+    "pairs_with": "tank tops, t-shirts, sports bras, lightweight trainers"
+  },
+  "auraup-track-jacket": {
+    "category": "outerwear",
+    "what": "Track jacket with contrast stripe detailing",
+    "colour": "oxblood",
+    "colour_family": "accent",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "joggers, tailored trousers, or casual denim for versatile styling"
+  },
+  "auraup-grey-shorts": {
+    "category": "bottom",
+    "what": "relaxed drawstring sweat shorts",
+    "colour": "charcoal grey",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "t-shirts, tank tops, hoodies, trainers, slides"
+  },
+  "auraup-runner-black-short": {
+    "category": "bottom",
+    "what": "relaxed drawcord athletic shorts with graphic print",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "running",
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "tank tops, t-shirts, hoodies, sneakers, and lightweight layers"
+  },
+  "auraup-sweat-pant": {
+    "category": "bottom",
+    "what": "relaxed wide-leg brushed sweatpants",
+    "colour": "light heather grey",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "oversized tees, crop tops, sneakers, slides"
+  },
+  "auraup-strip-black-joggers": {
+    "category": "bottom",
+    "what": "relaxed wide-leg sweatpants with side stripe",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel",
+      "going_out"
+    ],
+    "pairs_with": "oversized tops, cropped tees, hoodies, sneakers or slides"
+  },
+  "auraup-heather-grey-pants": {
+    "category": "bottom",
+    "what": "relaxed wide-leg heather grey sweatpants",
+    "colour": "light heather grey",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "oversized tees, hoodies, lightweight jackets, neutral sneakers"
+  },
+  "auraup-pea-green-joggers": {
+    "category": "bottom",
+    "what": "relaxed wide-leg sweatpants",
+    "colour": "pea green",
+    "colour_family": "accent",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "oversized tops, crop tops, sneakers, minimal accessories"
+  },
+  "auraup-white-tee": {
+    "category": "top",
+    "what": "classic crew neck short sleeve t-shirt",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "lounge",
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "jeans, tailored trousers, skirts, layers, athleisure bottoms"
+  },
+  "auraup-elevate-camo-long-sleeve": {
+    "category": "top",
+    "what": "long sleeve v-neck tee with logo print",
+    "colour": "off white",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "joggers, relaxed trousers, shorts for casual comfort"
+  },
+  "auraup-black-sweat-pant": {
+    "category": "bottom",
+    "what": "black tapered sweatpants with drawstring",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "AuraUP 051 set top or oversized sweatshirts"
+  },
+  "auraup-red-jersey": {
+    "category": "top",
+    "what": "retro striped polo shirt short sleeve",
+    "colour": "red",
+    "colour_family": "accent",
+    "occasions": [
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "tailored trousers, straight-leg denim, casual shorts"
+  },
+  "auraup-wine-camo-long-sleeve": {
+    "category": "top",
+    "what": "V-neck long sleeve regular fit tee",
+    "colour": "coral red",
+    "colour_family": "accent",
+    "occasions": [
+      "gym",
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "neutral bottoms, sneakers, joggers or casual trousers"
+  },
+  "auraup-flex-black-tee": {
+    "category": "top",
+    "what": "crew neck t-shirt with raglan sleeves",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "joggers, chinos, or relaxed trousers for versatile styling"
+  },
+  "auraup-solitaire-tee": {
+    "category": "top",
+    "what": "crew neck t-shirt with embroidered logo",
+    "colour": "cream",
+    "colour_family": "neutral",
+    "occasions": [
+      "lounge",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "tailored trousers, relaxed jeans, linen shorts, minimalist accessories"
+  },
+  "auraup-wine-long-sleeve-tee": {
+    "category": "top",
+    "what": "long sleeve quarter zip pullover midlayer",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "running",
+      "lounge",
+      "everyday",
+      "travel"
+    ],
+    "pairs_with": "joggers, track pants, leggings, or casual bottoms"
+  },
+  "auraup-black-tank-top": {
+    "category": "top",
+    "what": "sleeveless performance tank top",
+    "colour": "black",
+    "colour_family": "neutral",
+    "occasions": [
+      "gym",
+      "tennis",
+      "running"
+    ],
+    "pairs_with": "athletic shorts, joggers, or leggings for training"
+  },
+  "auraup-motion-polo": {
+    "category": "top",
+    "what": "color-block polo shirt with contrasting yoke",
+    "colour": "mint and lavender",
+    "colour_family": "accent",
+    "occasions": [
+      "work",
+      "everyday",
+      "going_out",
+      "travel"
+    ],
+    "pairs_with": "navy chinos, white shorts, or tailored trousers for polished looks"
+  }
+};
 
 const PROFILE_MODEL = process.env.ANTHROPIC_PROFILE_MODEL || MODEL;
 
