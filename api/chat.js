@@ -40,6 +40,42 @@ const BRAND_FACTS =
 
 
 // ==================================================
+// PRODUCT PROFILES
+//
+// The AI cannot see photos while chatting (it would be too slow and
+// costly per message). Instead, each product is looked at ONCE by the
+// profile builder (see ?profiles=build below), which describes what the
+// piece is, its colour, and which occasions it suits. Paste the builder's
+// output over the line below. Products without a profile still work,
+// they just fall back to their names.
+// ==================================================
+
+const PRODUCT_PROFILES = {};
+
+const PROFILE_MODEL = process.env.ANTHROPIC_PROFILE_MODEL || MODEL;
+
+const PROFILE_OCCASIONS = ['gym', 'tennis', 'running', 'lounge', 'work', 'everyday', 'going_out', 'travel'];
+
+// Map the chat's occasion names onto the profile's occasion names.
+const OCCASION_ALIASES = { training: 'gym', sport: 'gym', evening: 'going_out' };
+
+function normOccasion(value) {
+  const key = String(value || '').toLowerCase();
+  return OCCASION_ALIASES[key] || key;
+}
+
+// Strip long dashes from anything the shopper reads.
+function tidy(text) {
+  return String(text || '')
+    .replace(/\s*[\u2014\u2013]\s*/g, ', ')
+    .replace(/\s+-\s+/g, ', ')
+    .replace(/,\s*,/g, ',')
+    .replace(/,\s*([.!?])/g, '$1')
+    .trim();
+}
+
+
+// ==================================================
 // CORS
 // ==================================================
 
@@ -229,15 +265,26 @@ function labelOf(product) {
   return (product.title || '') + ' ' + (product.type || '');
 }
 
+function profileCategory(product) {
+  return product && product.profile && product.profile.category ? product.profile.category : null;
+}
+
 function isSocks(product) {
+  const cat = profileCategory(product);
+  if (cat) return cat === 'socks';
   return /\bsocks?\b/i.test(labelOf(product));
 }
 
 function isUnderwear(product) {
+  const cat = profileCategory(product);
+  if (cat) return cat === 'underwear';
   return /\b(boxers?|briefs?|trunks?|underwear)\b/i.test(labelOf(product));
 }
 
 function isJacket(product) {
+  const cat = profileCategory(product);
+  if (cat && cat !== 'outerwear') return false;
+  if (cat === 'outerwear' && /jacket/i.test(product.profile.what || '')) return true;
   const label = labelOf(product);
   if (/\bjackets?\b/i.test(label)) return true;
   if (/\b(hoodie|tee|t-shirt|shorts|pants|sweatpants|joggers|socks|boxers)\b/i.test(label)) return false;
@@ -252,17 +299,34 @@ const TOP_WORDS = /\b(tees?|t-shirts?|shirts?|polos?|tanks?|tank tops?|tops?|lon
 const SLEEVE_WORDS = /\b(short|long)[\s-]*sleeves?\b/gi;
 
 function isBottom(product) {
+  const cat = profileCategory(product);
+  if (cat) return cat === 'bottom';
   if (isSocks(product) || isUnderwear(product)) return false;
   return BOTTOM_WORDS.test(labelOf(product).replace(SLEEVE_WORDS, ' '));
 }
 
 function isTop(product) {
+  const cat = profileCategory(product);
+  if (cat) return cat === 'top';
   if (isSocks(product) || isUnderwear(product) || isJacket(product) || isBottom(product)) return false;
   return /\bsleeves?\b/i.test(labelOf(product)) || TOP_WORDS.test(labelOf(product));
 }
 
+// Does this piece suit the occasion? Underwear and socks always do.
+// Pieces without a profile are allowed (we have nothing to judge by).
+function suitsOccasion(product, occasion) {
+  const occ = normOccasion(occasion);
+  if (!occ || occ === 'other' || !PROFILE_OCCASIONS.includes(occ)) return true;
+  if (isSocks(product) || isUnderwear(product)) return true;
+  const list = product.profile && Array.isArray(product.profile.occasions) ? product.profile.occasions : null;
+  if (!list || !list.length) return true;
+  return list.includes(occ);
+}
+
 // Fixed categories always win over whatever role the model picked.
 function roleFor(product, suggested) {
+  const cat = profileCategory(product);
+  if (cat && ROLE_ORDER.includes(cat)) return cat;
   if (isSocks(product)) return 'socks';
   if (isUnderwear(product)) return 'underwear';
   if (isJacket(product)) return 'outerwear';
@@ -362,6 +426,7 @@ function toCatalogItem(product, currency, collections = []) {
     collections,
     gender: genderFrom(tags, product.title || '', product.product_type || '', collections),
     about: strip(product.body_html).slice(0, 160),
+    profile: PRODUCT_PROFILES[product.handle] || null,
     preorder,
     available: inStock.length > 0,
     sizes: uniqueList(inStock.map((variant) => valueAt(variant, sizeIndex))),
@@ -456,6 +521,12 @@ function catalogText(items) {
         `for=${p.gender}`,
         p.collections.length ? `collections=${p.collections.join('/')}` : null,
         p.occasions.length ? `occasions=${p.occasions.join('/')}` : null,
+        p.profile ? `is=${p.profile.what}` : null,
+        p.profile ? `colour=${p.profile.colour} (${p.profile.colour_family})` : null,
+        p.profile && p.profile.occasions && p.profile.occasions.length
+          ? `good for=${p.profile.occasions.join('/')}`
+          : null,
+        p.profile && p.profile.pairs_with ? `pairs with=${p.profile.pairs_with}` : null,
         isJacket(p) ? 'JACKET: luxury lounge piece, never for sport' : null,
         p.price ? `price=${p.price}` : null,
         p.colours.length ? `colours=${p.colours.join('/')}` : null,
@@ -463,7 +534,7 @@ function catalogText(items) {
           ? `in-stock sizes=${p.sizes.length ? p.sizes.join('/') : 'one size'}`
           : 'SOLD OUT',
         p.preorder ? 'PRE-ORDER' : null,
-        p.about ? `about=${p.about}` : null
+        !p.profile && p.about ? `about=${p.about}` : null
       ].filter(Boolean);
 
       return '- ' + parts.join(' | ');
@@ -493,7 +564,8 @@ function buildOutfits(input, catalog, userText) {
   // unisex pieces suit everyone; otherwise the piece must match the shopper
   const fits = (p) => !gender || p.gender === 'unisex' || p.gender === gender;
 
-  const pool = (test) => catalog.filter((p) => p.available && fits(p) && test(p));
+  const pool = (test) =>
+    catalog.filter((p) => p.available && fits(p) && suitsOccasion(p, occasion) && test(p));
 
   const socks = pool(isSocks);
   const underwear = pool(isUnderwear);
@@ -546,6 +618,10 @@ function buildOutfits(input, catalog, userText) {
         }
         if (sport && isJacket(product)) {
           removed.push(`${product.title} (jackets are lounge only)`);
+          return null;
+        }
+        if (!suitsOccasion(product, occasion)) {
+          removed.push(`${product.title} (not suitable for ${normOccasion(occasion)})`);
           return null;
         }
 
@@ -607,8 +683,8 @@ function buildOutfits(input, catalog, userText) {
 
     if (items.length >= 2) {
       outfits.push({
-        name: String(outfit.name || `Look ${index + 1}`).slice(0, 40),
-        note: String(outfit.note || '').slice(0, 160),
+        name: tidy(outfit.name || `Look ${index + 1}`).slice(0, 40),
+        note: tidy(outfit.note).slice(0, 160),
         items,
         removed
       });
@@ -680,6 +756,118 @@ function productsNamedIn(reply, catalog) {
 
 
 // ==================================================
+// PROFILE BUILDER
+//
+// Looks at each product photo once and writes a short, strict
+// style profile. Run it from the browser (see handler) whenever
+// products are added, then paste the output into PRODUCT_PROFILES.
+// ==================================================
+
+const PROFILE_INSTRUCTIONS =
+  'You are cataloguing pieces for AuraUP, a Lagos luxury athleisure brand, so an AI stylist can build outfits. ' +
+  'Look carefully at the photo and the details, then reply with ONLY a JSON object, no other text:\n' +
+  '{"category": one of "underwear", "socks", "bottom", "top", "outerwear", "accessory",\n' +
+  ' "what": what the piece actually is in under 10 words, e.g. "sleeveless ribbed tank top" or "relaxed wide-leg sweatpants",\n' +
+  ' "colour": the main colour in plain words, e.g. "light heather grey",\n' +
+  ' "colour_family": "neutral" for black, white, grey, charcoal, slate, navy, cream, beige or stone, otherwise "accent",\n' +
+  ' "occasions": an array of the occasions this piece genuinely suits, chosen only from gym, tennis, running, lounge, work, everyday, going_out, travel,\n' +
+  ' "pairs_with": under 12 words on what it pairs well with}\n\n' +
+  'Rules for occasions. Be strict; when unsure, leave an occasion out.\n' +
+  '- Sleeveless tops and tank tops: gym, tennis, running only. Never work, lounge or going_out.\n' +
+  '- Performance or athletic shorts: gym, tennis, running only.\n' +
+  '- Jackets are the brand\'s luxury lounge pieces: lounge first; everyday, travel or going_out if polished. NEVER gym, tennis or running.\n' +
+  '- Work means a smart-casual office: only clean, covered, polished pieces. No sleeveless tops, no athletic shorts, no loud camo.\n' +
+  '- Underwear and socks: list all eight occasions.\n' +
+  '- Do not use em dashes or en dashes.';
+
+function sizedImage(url, width) {
+  try {
+    const u = new URL(url);
+    u.searchParams.set('width', String(width));
+    return u.toString();
+  } catch (error) {
+    return url;
+  }
+}
+
+function cleanProfile(raw) {
+  const categories = ['underwear', 'socks', 'bottom', 'top', 'outerwear', 'accessory'];
+  const category = categories.includes(raw && raw.category) ? raw.category : null;
+  if (!category) throw new Error('bad category');
+
+  return {
+    category,
+    what: tidy(raw.what).slice(0, 80),
+    colour: tidy(raw.colour).slice(0, 40),
+    colour_family: raw.colour_family === 'accent' ? 'accent' : 'neutral',
+    occasions: (Array.isArray(raw.occasions) ? raw.occasions : [])
+      .map((o) => String(o).toLowerCase().replace(/\s+/g, '_'))
+      .filter((o) => PROFILE_OCCASIONS.includes(o)),
+    pairs_with: tidy(raw.pairs_with).slice(0, 100)
+  };
+}
+
+async function profileProduct(product) {
+  const content = [];
+
+  if (product.image) {
+    content.push({
+      type: 'image',
+      source: { type: 'url', url: sizedImage(product.image, 600) }
+    });
+  }
+
+  content.push({
+    type: 'text',
+    text:
+      `Product: ${product.title}\n` +
+      `Type: ${product.type || 'none'}\n` +
+      `Collections: ${product.collections.join(', ') || 'none'}\n` +
+      `Colour options: ${product.colours.join(', ') || 'none'}\n` +
+      `Description: ${product.about || 'none'}\n\n` +
+      PROFILE_INSTRUCTIONS
+  });
+
+  const response = await anthropic.messages.create({
+    model: PROFILE_MODEL,
+    max_tokens: 400,
+    messages: [{ role: 'user', content }]
+  });
+
+  const text = response.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('');
+
+  const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
+  return cleanProfile(JSON.parse(json));
+}
+
+async function buildProfiles(catalog, onlyMissing) {
+  const todo = catalog.filter((p) => !onlyMissing || !PRODUCT_PROFILES[p.handle]);
+  const results = { ...(onlyMissing ? PRODUCT_PROFILES : {}) };
+  const failed = [];
+
+  // 8 at a time keeps it well inside the function time limit.
+  for (let i = 0; i < todo.length; i += 8) {
+    await Promise.all(
+      todo.slice(i, i + 8).map(async (product) => {
+        try {
+          results[product.handle] = await profileProduct(product);
+        } catch (error) {
+          console.error(`Profile failed for ${product.handle}:`, error.message);
+          failed.push(product.handle);
+          if (PRODUCT_PROFILES[product.handle]) results[product.handle] = PRODUCT_PROFILES[product.handle];
+        }
+      })
+    );
+  }
+
+  return { results, failed, done: todo.length - failed.length };
+}
+
+
+// ==================================================
 // CLAUDE TOOLS
 // ==================================================
 
@@ -704,7 +892,7 @@ const tools = [
         },
         occasion: {
           type: 'string',
-          enum: ['gym', 'tennis', 'running', 'training', 'sport', 'lounge', 'everyday', 'travel', 'evening', 'other']
+          enum: ['gym', 'tennis', 'running', 'training', 'sport', 'lounge', 'work', 'everyday', 'going_out', 'travel', 'evening', 'other']
         },
         outfits: {
           type: 'array',
@@ -792,7 +980,13 @@ function buildSystem(knowledge, catalog) {
   return (
     `You are the AuraUP shopping assistant on www.auraupstore.com.\n` +
     `AuraUP is a Lagos-based luxury athleisure brand. Tagline: "Quiet Strength in Motion".\n` +
-    `Voice: quiet, confident, concise and premium. Never pushy. No emoji.\n\n` +
+    `Voice: quiet, confident, concise and premium. Never pushy. No emoji. Never use em dashes or en dashes; use commas or full stops instead.\n\n` +
+
+    `YOU ARE A STYLIST:\n` +
+    `- Most products include a profile taken from their photo: is (what the piece actually is), colour, good for (the occasions it suits) and pairs with. Trust these over the product name.\n` +
+    `- Only use a piece for an occasion listed in its good for. Never put gym or sleeveless pieces in work, lounge or going-out looks.\n` +
+    `- Work means smart-casual: clean, covered, polished pieces only.\n` +
+    `- Set the occasion in show_outfits to match the request exactly (work for office or work, going_out for dinner or nights out).\n\n` +
 
     `CATALOG RULES:\n` +
     `- The LIVE CATALOG below is every product on sale right now. Recommend only products listed there, using their exact handles.\n` +
@@ -881,15 +1075,31 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
+  const query = req.query || {};
+  const keyOk =
+    req.method === 'GET' &&
+    process.env.DEBUG_KEY &&
+    query.key === process.env.DEBUG_KEY;
+
+  // Profile builder: /api/chat?profiles=build&key=YOUR_DEBUG_KEY
+  // Add &missing=1 to only profile products that don't have one yet.
+  // Output is a block of code to paste over PRODUCT_PROFILES.
+  if (keyOk && query.profiles === 'build') {
+    const catalog = await getCatalog();
+    const { results, failed, done } = await buildProfiles(catalog, query.missing === '1');
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.status(200).send(
+      `// Profiled ${done} products.` +
+      (failed.length ? ` Failed: ${failed.join(', ')}. Run with &missing=1 after pasting to retry.` : '') +
+      `\n// Paste everything below over the line: const PRODUCT_PROFILES = {};\n\n` +
+      `const PRODUCT_PROFILES = ${JSON.stringify(results, null, 2)};\n`
+    );
+  }
+
   // Debug: /api/chat?debug=catalog&key=YOUR_DEBUG_KEY shows the catalog
   // exactly as the AI sees it. Disabled unless DEBUG_KEY is set in Vercel.
-  if (
-    req.method === 'GET' &&
-    req.query &&
-    req.query.debug === 'catalog' &&
-    process.env.DEBUG_KEY &&
-    req.query.key === process.env.DEBUG_KEY
-  ) {
+  if (keyOk && query.debug === 'catalog') {
     const catalog = await getCatalog();
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(200).send(
@@ -897,7 +1107,10 @@ export default async function handler(req, res) {
         .map((p) => {
           const role = isSocks(p) ? 'socks' : isUnderwear(p) ? 'underwear' : isJacket(p) ? 'jacket'
             : isBottom(p) ? 'bottom' : isTop(p) ? 'top' : 'UNKNOWN';
-          return `[${p.gender}] [${role}] ${p.available ? '' : '[SOLD OUT] '}${p.title}  |  collections: ${p.collections.join(', ') || 'none'}`;
+          const profile = p.profile
+            ? `${p.profile.what}, ${p.profile.colour} | good for: ${p.profile.occasions.join('/')}`
+            : 'NO PROFILE';
+          return `[${p.gender}] [${role}] ${p.available ? '' : '[SOLD OUT] '}${p.title}  |  ${profile}  |  collections: ${p.collections.join(', ') || 'none'}`;
         })
         .join('\n')
     );
@@ -994,7 +1207,7 @@ export default async function handler(req, res) {
         if (built.length) {
           outfits = built;
           reply =
-            String((outfitCall.input && outfitCall.input.intro) || '').trim() ||
+            tidy((outfitCall.input && outfitCall.input.intro) || '') ||
             'Three looks for you.';
           quickReplies = [];
           break;
@@ -1069,6 +1282,8 @@ export default async function handler(req, res) {
     if (!outfits.length && !cards.length && reply) {
       cards = productsNamedIn(reply, catalog);
     }
+
+    reply = tidy(reply);
 
     return res.status(200).json({
       reply:
