@@ -247,14 +247,18 @@ function isJacket(product) {
 const BOTTOM_WORDS = /\b(shorts?|pants|sweatpants|joggers?|trousers|leggings|tights|skirts?|bottoms?)\b/i;
 const TOP_WORDS = /\b(tees?|t-shirts?|shirts?|polos?|tanks?|tank tops?|tops?|long sleeves?|sweatshirts?|hoodies?|crewnecks?|midlayers?|vests?|bras?)\b/i;
 
+// "Short Sleeve" / "Long Sleeve" describe tops, so they must never
+// count as shorts.
+const SLEEVE_WORDS = /\b(short|long)[\s-]*sleeves?\b/gi;
+
 function isBottom(product) {
   if (isSocks(product) || isUnderwear(product)) return false;
-  return BOTTOM_WORDS.test(labelOf(product));
+  return BOTTOM_WORDS.test(labelOf(product).replace(SLEEVE_WORDS, ' '));
 }
 
 function isTop(product) {
   if (isSocks(product) || isUnderwear(product) || isJacket(product) || isBottom(product)) return false;
-  return TOP_WORDS.test(labelOf(product));
+  return /\bsleeves?\b/i.test(labelOf(product)) || TOP_WORDS.test(labelOf(product));
 }
 
 // Fixed categories always win over whatever role the model picked.
@@ -263,6 +267,7 @@ function roleFor(product, suggested) {
   if (isUnderwear(product)) return 'underwear';
   if (isJacket(product)) return 'outerwear';
   if (isBottom(product)) return 'bottom';
+  if (isTop(product)) return 'top';
   return ROLE_ORDER.includes(suggested) ? suggested : 'top';
 }
 
@@ -517,8 +522,10 @@ function buildOutfits(input, catalog, userText) {
   requested.slice(0, 3).forEach((outfit, index) => {
     const seen = new Set();
     const removed = [];
+    const takenRoles = new Set();
 
-    const items = slots
+    // Pass 1: validate each piece and work out what it really is.
+    const candidates = slots
       .map(([key, role]) => {
         const handle = String((outfit && outfit[key]) || '').trim();
         if (!handle) return null;
@@ -541,19 +548,39 @@ function buildOutfits(input, catalog, userText) {
           removed.push(`${product.title} (jackets are lounge only)`);
           return null;
         }
-        if (capJackets && isJacket(product)) {
-          if (jacketTaken) {
-            removed.push(`${product.title} (only one look gets a jacket)`);
-            return null;
-          }
-          jacketTaken = true;
-        }
-        if (seen.has(product.handle)) return null;
 
-        seen.add(product.handle);
-        return { ...product, role: roleFor(product, role) };
+        return { product, slotRole: role, actualRole: roleFor(product, role) };
       })
       .filter(Boolean);
+
+    // Pass 2: one piece per role. Pieces that sit in the right slot win;
+    // a piece in the wrong slot (a tee put in "bottom") only gets in if
+    // its real role is still free.
+    const items = [];
+    const accept = (c) => {
+      if (seen.has(c.product.handle) || takenRoles.has(c.actualRole)) return false;
+
+      if (capJackets && isJacket(c.product)) {
+        if (jacketTaken) {
+          removed.push(`${c.product.title} (only one look gets a jacket)`);
+          return true;
+        }
+        jacketTaken = true;
+      }
+
+      takenRoles.add(c.actualRole);
+      seen.add(c.product.handle);
+      items.push({ ...c.product, role: c.actualRole });
+      return true;
+    };
+
+    const rightSlot = candidates.filter((c) => c.actualRole === c.slotRole);
+    const wrongSlot = candidates.filter((c) => c.actualRole !== c.slotRole);
+
+    rightSlot.forEach(accept);
+    wrongSlot.forEach((c) => {
+      if (!accept(c)) removed.push(`${c.product.title} (was not a ${c.slotRole})`);
+    });
 
     const hasRole = (role) => items.some((item) => item.role === role);
 

@@ -422,10 +422,19 @@
       'color:#2a2a2a;' +
       'outline:none;' +
       'resize:none;' +
+      'overflow-y:hidden;' +
+      'line-height:1.35;' +
       'max-height:90px;' +
     '}' +
 
     '.auaa-input:focus{border-color:#1a1a1a;}' +
+
+    '.auaa-input::placeholder{' +
+      'color:rgba(42,42,42,.4);' +
+      'white-space:nowrap;' +
+      'overflow:hidden;' +
+      'text-overflow:ellipsis;' +
+    '}' +
 
     '.auaa-send{' +
       'width:38px;' +
@@ -530,7 +539,7 @@
     '<div class="auaa-body" id="auaaBody"></div>' +
 
     '<div class="auaa-foot">' +
-      '<textarea class="auaa-input" id="auaaInput" rows="1" maxlength="1000" aria-label="Message AuraUP assistant" placeholder="Ask for a gym fit, sizing, shipping..."></textarea>' +
+      '<textarea class="auaa-input" id="auaaInput" rows="1" maxlength="1000" aria-label="Message AuraUP assistant" placeholder="Ask for a look or sizing"></textarea>' +
       '<button type="button" class="auaa-send" id="auaaSend" aria-label="Send message">' +
         '<svg viewBox="0 0 24 24">' +
           '<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-linecap="round" stroke-linejoin="round"/>' +
@@ -861,6 +870,8 @@
   inputEl.addEventListener('input', function () {
     inputEl.style.height = 'auto';
     inputEl.style.height = Math.min(inputEl.scrollHeight, 90) + 'px';
+    // Only allow scrolling once a long message passes the max height.
+    inputEl.style.overflowY = inputEl.scrollHeight > 90 ? 'auto' : 'hidden';
   });
 
   document.addEventListener('keydown', function (event) {
