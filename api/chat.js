@@ -244,11 +244,25 @@ function isJacket(product) {
   return (product.collections || []).some((c) => /\bjackets?\b/i.test(c) && !/hood/i.test(c));
 }
 
+const BOTTOM_WORDS = /\b(shorts?|pants|sweatpants|joggers?|trousers|leggings|tights|skirts?|bottoms?)\b/i;
+const TOP_WORDS = /\b(tees?|t-shirts?|shirts?|polos?|tanks?|tank tops?|tops?|long sleeves?|sweatshirts?|hoodies?|crewnecks?|midlayers?|vests?|bras?)\b/i;
+
+function isBottom(product) {
+  if (isSocks(product) || isUnderwear(product)) return false;
+  return BOTTOM_WORDS.test(labelOf(product));
+}
+
+function isTop(product) {
+  if (isSocks(product) || isUnderwear(product) || isJacket(product) || isBottom(product)) return false;
+  return TOP_WORDS.test(labelOf(product));
+}
+
 // Fixed categories always win over whatever role the model picked.
 function roleFor(product, suggested) {
   if (isSocks(product)) return 'socks';
   if (isUnderwear(product)) return 'underwear';
   if (isJacket(product)) return 'outerwear';
+  if (isBottom(product)) return 'bottom';
   return ROLE_ORDER.includes(suggested) ? suggested : 'top';
 }
 
@@ -474,8 +488,16 @@ function buildOutfits(input, catalog, userText) {
   // unisex pieces suit everyone; otherwise the piece must match the shopper
   const fits = (p) => !gender || p.gender === 'unisex' || p.gender === gender;
 
-  const socks = catalog.filter((p) => p.available && isSocks(p) && fits(p));
-  const underwear = catalog.filter((p) => p.available && isUnderwear(p) && fits(p));
+  const pool = (test) => catalog.filter((p) => p.available && fits(p) && test(p));
+
+  const socks = pool(isSocks);
+  const underwear = pool(isUnderwear);
+
+  // For sport, shorts come first; otherwise any bottom.
+  const bottoms = pool(isBottom).sort((a, b) =>
+    sport ? Number(/shorts?/i.test(labelOf(b))) - Number(/shorts?/i.test(labelOf(a))) : 0
+  );
+  const tops = pool(isTop);
 
   const requested = Array.isArray(input && input.outfits) ? input.outfits : [];
   const outfits = [];
@@ -535,19 +557,31 @@ function buildOutfits(input, catalog, userText) {
 
     const hasRole = (role) => items.some((item) => item.role === role);
 
-    if (!hasRole('underwear') && underwear.length) {
-      items.push({ ...underwear[index % underwear.length], role: 'underwear' });
-    }
+    // Every outfit must be complete. Fill any missing piece from the
+    // matching category, rotating so the three looks don't repeat.
+    const fill = (role, list) => {
+      if (hasRole(role) || !list.length) return;
+      for (let i = 0; i < list.length; i++) {
+        const pick = list[(index + i) % list.length];
+        if (!seen.has(pick.handle)) {
+          seen.add(pick.handle);
+          items.push({ ...pick, role });
+          return;
+        }
+      }
+    };
 
-    if (!hasRole('socks') && socks.length) {
-      items.push({ ...socks[index % socks.length], role: 'socks' });
-    }
+    fill('underwear', underwear);
+    fill('socks', socks);
+    fill('bottom', bottoms);
+    fill('top', tops);
 
     items.sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
 
     if (items.length >= 2) {
       outfits.push({
         name: String(outfit.name || `Look ${index + 1}`).slice(0, 40),
+        note: String(outfit.note || '').slice(0, 160),
         items,
         removed
       });
@@ -637,6 +671,10 @@ const tools = [
           enum: ['men', 'women'],
           description: 'Who the outfits are for. Only call once this is known.'
         },
+        intro: {
+          type: 'string',
+          description: 'One short opening line shown above the outfits, e.g. "Three gym looks for you."'
+        },
         occasion: {
           type: 'string',
           enum: ['gym', 'tennis', 'running', 'training', 'sport', 'lounge', 'everyday', 'travel', 'evening', 'other']
@@ -651,6 +689,10 @@ const tools = [
               name: {
                 type: 'string',
                 description: 'Short outfit name, two to four words'
+              },
+              note: {
+                type: 'string',
+                description: 'One short sentence on the feel of this look and when to wear it. Do not list the pieces; the pictures show them.'
               },
               underwear: {
                 type: 'string',
@@ -673,18 +715,19 @@ const tools = [
                 description: 'Optional handle of an outer layer. Never a jacket for sport.'
               }
             },
-            required: ['name', 'bottom', 'top', 'socks']
+            required: ['name', 'note', 'bottom', 'top', 'socks']
           }
         }
       },
-      required: ['gender', 'occasion', 'outfits']
+      required: ['gender', 'occasion', 'intro', 'outfits']
     }
   },
   {
     name: 'ask_gender',
     description:
       'Show Men and Women buttons so the shopper can say who the look is for. ' +
-      'Use this before building outfits when you do not yet know if the shopper wants menswear or womenswear.',
+      'Use this before building outfits when you do not yet know if the shopper wants menswear or womenswear. ' +
+      'Write your short question as text in the same response as this call.',
     input_schema: {
       type: 'object',
       properties: {}
@@ -733,7 +776,7 @@ function buildSystem(knowledge, catalog) {
 
     `MEN OR WOMEN:\n` +
     `- Before building any outfit, you must know if it is for men or women. Each product shows for=men, for=women or for=unisex.\n` +
-    `- If the shopper has not made it clear (for example "for my girlfriend", "for him", "women's", "I'm a guy"), call ask_gender and ask one short question, such as "Happy to style that. Is this for men or women?" Do not build outfits in the same reply.\n` +
+    `- If the shopper has not made it clear (for example "for my girlfriend", "for him", "women's", "I'm a guy"), call ask_gender and, in that same response, write one short question such as "Happy to style that. Is this for men or women?" Do not build outfits in the same reply.\n` +
     `- Once you know, remember it for the rest of the chat and do not ask again.\n` +
     `- Only use pieces made for that gender or unisex. When single products are requested, prefer that gender too if known.\n\n` +
     `SOCKS:\n` +
@@ -760,8 +803,7 @@ function buildSystem(knowledge, catalog) {
     `For sport outfits, add a non-jacket outer layer only if one suits the activity; otherwise leave the outer layer out.\n\n` +
 
     `WRITING THE REPLY:\n` +
-    `- After show_outfits, write one short opening line, then ONE short sentence per outfit giving its name and naming every piece in it, including the underwear and the socks. Describe exactly what the tool result says was shown, nothing more and nothing less.\n` +
-    `- Keep the whole outfit reply brief, around 80 words. No closing summary paragraph.\n` +
+    `- For outfits, everything goes inside show_outfits: a one-line intro, and for each outfit a name and a one-sentence note on its feel. Do not list the pieces in text; each outfit card shows every piece with its picture and label.\n` +
     `- The pictures, names and prices appear under your text, so do not list links or repeat every price unless asked.\n` +
     `- Write in plain text only. No Markdown: no ** bold, no # headings, no asterisks or bullet symbols.\n` +
     `- Otherwise keep answers to a few sentences unless the shopper asks for more detail.\n\n` +
@@ -812,6 +854,28 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
+  // Debug: /api/chat?debug=catalog&key=YOUR_DEBUG_KEY shows the catalog
+  // exactly as the AI sees it. Disabled unless DEBUG_KEY is set in Vercel.
+  if (
+    req.method === 'GET' &&
+    req.query &&
+    req.query.debug === 'catalog' &&
+    process.env.DEBUG_KEY &&
+    req.query.key === process.env.DEBUG_KEY
+  ) {
+    const catalog = await getCatalog();
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.status(200).send(
+      catalog
+        .map((p) => {
+          const role = isSocks(p) ? 'socks' : isUnderwear(p) ? 'underwear' : isJacket(p) ? 'jacket'
+            : isBottom(p) ? 'bottom' : isTop(p) ? 'top' : 'UNKNOWN';
+          return `[${p.gender}] [${role}] ${p.available ? '' : '[SOLD OUT] '}${p.title}  |  collections: ${p.collections.join(', ') || 'none'}`;
+        })
+        .join('\n')
+    );
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'method_not_allowed' });
   }
@@ -852,6 +916,7 @@ export default async function handler(req, res) {
     let products = [];
     let reply = '';
     let quickReplies = [];
+    let lastText = '';
 
     // Usually two rounds: show the pieces, then write the text.
     for (let step = 0; step < 4; step++) {
@@ -871,13 +936,42 @@ export default async function handler(req, res) {
 
       const toolUses = response.content.filter((block) => block.type === 'tool_use');
 
+      const turnText = response.content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n')
+        .trim();
+
+      // Remember any text the model writes, even next to a tool call,
+      // so a reply is never lost if a later round comes back empty.
+      if (turnText) lastText = turnText;
+
       if (toolUses.length === 0) {
-        reply = response.content
-          .filter((block) => block.type === 'text')
-          .map((block) => block.text)
-          .join('\n')
-          .trim();
+        reply = turnText;
         break;
+      }
+
+      // Asking men or women ends the turn right away: show the buttons
+      // and the question, no second model call (faster, and no loops).
+      if (toolUses.some((block) => block.name === 'ask_gender') && !outfits.length) {
+        quickReplies = ['Men', 'Women'];
+        reply = turnText || 'Happy to put that together. Is this for men or women?';
+        break;
+      }
+
+      // Outfits are fully described inside the tool call (intro, names,
+      // notes), so once they build successfully the turn is done.
+      const outfitCall = toolUses.find((block) => block.name === 'show_outfits');
+      if (outfitCall) {
+        const built = buildOutfits(outfitCall.input, catalog, userText);
+        if (built.length) {
+          outfits = built;
+          reply =
+            String((outfitCall.input && outfitCall.input.intro) || '').trim() ||
+            'Three looks for you.';
+          quickReplies = [];
+          break;
+        }
       }
 
       convo.push({ role: 'assistant', content: response.content });
@@ -926,6 +1020,17 @@ export default async function handler(req, res) {
       convo.push({ role: 'user', content: toolResults });
     }
 
+    if (!reply) reply = lastText;
+
+    if (!reply) {
+      console.warn('Assistant returned no text', { userText, outfits: outfits.length, products: products.length });
+    }
+
+    // If the model asked men or women in plain text, still show the buttons.
+    if (!outfits.length && !quickReplies.length && /\bmen or women\b|\bwomen or men\b/i.test(reply)) {
+      quickReplies = ['Men', 'Women'];
+    }
+
     // Deduplicate single product cards.
     const seen = new Set();
     let cards = products.filter((p) => {
@@ -939,8 +1044,12 @@ export default async function handler(req, res) {
     }
 
     return res.status(200).json({
-      reply: reply || `I can connect you with our team on WhatsApp ${WHATSAPP} for that.`,
-      outfits: outfits.map((outfit) => ({ name: outfit.name, items: outfit.items })),
+      reply:
+        reply ||
+        (outfits.length || cards.length
+          ? 'Here are some pieces I picked for you.'
+          : `Sorry, I missed that. Could you say it another way? You can also reach our team on WhatsApp ${WHATSAPP}.`),
+      outfits: outfits.map((outfit) => ({ name: outfit.name, note: outfit.note, items: outfit.items })),
       products: cards.slice(0, 5),
       quick_replies: outfits.length ? [] : quickReplies
     });

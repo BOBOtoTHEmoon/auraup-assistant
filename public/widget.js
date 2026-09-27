@@ -275,6 +275,14 @@
       'color:#1a1a1a;' +
     '}' +
 
+    '.auaa-outfit-note{' +
+      'margin:-4px 0 12px;' +
+      'font-size:.65rem;' +
+      'font-weight:300;' +
+      'line-height:1.6;' +
+      'color:rgba(42,42,42,.7);' +
+    '}' +
+
     // Every piece visible at once: 3 per line, wraps to a second line
     '.auaa-row{' +
       'display:grid;' +
@@ -333,6 +341,37 @@
       'margin:3px 0 0;' +
       'font-size:.5rem;' +
       'color:rgba(42,42,42,.55);' +
+    '}' +
+
+
+    // Quick reply buttons (e.g. Men / Women)
+    '.auaa-chips{' +
+      'display:flex;' +
+      'flex-wrap:wrap;' +
+      'gap:8px;' +
+      'align-self:flex-start;' +
+    '}' +
+
+    '.auaa-chip{' +
+      'background:#fff;' +
+      'border:1px solid #1a1a1a;' +
+      'color:#1a1a1a;' +
+      'border-radius:40px;' +
+      'padding:9px 18px;' +
+      'font-family:Montserrat,system-ui,sans-serif;' +
+      'font-size:.6rem;' +
+      'font-weight:500;' +
+      'letter-spacing:.12em;' +
+      'text-transform:uppercase;' +
+      'cursor:pointer;' +
+      'transition:background .2s ease,color .2s ease;' +
+    '}' +
+
+    '.auaa-chip:hover,' +
+    '.auaa-chip:focus-visible{' +
+      'background:#1a1a1a;' +
+      'color:#fff;' +
+      'outline:none;' +
     '}' +
 
 
@@ -634,7 +673,9 @@
 
       if (!row.children.length) return;
 
-      block.innerHTML = '<p class="auaa-outfit-name">' + esc(outfit.name) + '</p>';
+      block.innerHTML =
+        '<p class="auaa-outfit-name">' + esc(outfit.name) + '</p>' +
+        (outfit.note ? '<p class="auaa-outfit-note">' + esc(outfit.note) + '</p>' : '');
       block.appendChild(row);
       wrap.appendChild(block);
     });
@@ -643,6 +684,42 @@
 
     bodyEl.appendChild(wrap);
     return true;
+  }
+
+
+  // ==========================================
+  // QUICK REPLIES
+  // ==========================================
+
+  function clearChips() {
+    var old = bodyEl.querySelectorAll('.auaa-chips');
+    for (var i = 0; i < old.length; i++) old[i].remove();
+  }
+
+  function addChips(options) {
+    if (!Array.isArray(options) || !options.length) return;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'auaa-chips';
+
+    options.forEach(function (label) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'auaa-chip';
+      chip.textContent = label;
+
+      chip.addEventListener('click', function () {
+        if (busy) return;
+        clearChips();
+        inputEl.value = label;
+        send();
+      });
+
+      wrap.appendChild(chip);
+    });
+
+    bodyEl.appendChild(wrap);
+    scrollDown();
   }
 
 
@@ -706,6 +783,7 @@
     inputEl.value = '';
     inputEl.style.height = 'auto';
 
+    clearChips();
     addBubble('user', text);
 
     messages.push({ role: 'user', content: text });
@@ -746,6 +824,7 @@
 
       var hasOutfits = addOutfits(data && data.outfits);
       addCards(data && data.products);
+      addChips(data && data.quick_replies);
 
       if (hasOutfits) {
         scrollToElement(bubble);
