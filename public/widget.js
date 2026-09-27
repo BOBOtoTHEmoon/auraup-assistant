@@ -16,6 +16,7 @@
     socks: 'Socks',
     bottom: 'Bottoms',
     top: 'Top',
+    set: 'Set',
     outerwear: 'Layer',
     accessory: 'Accessory'
   };

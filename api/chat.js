@@ -822,6 +822,77 @@ const PRODUCT_PROFILES = {
   }
 };
 
+// Hand corrections on top of the photo check. These survive when the
+// builder is run again, so fix things here rather than in the block above.
+//   add: occasions to add      remove: occasions to take away
+//   any other field (colour, what, category) replaces the photo check's value
+const PROFILE_OVERRIDES = {
+  // Polos are classic tennis wear
+  'auraup-ardent-sage': { add: ['tennis'] },
+  'auraup-ardent-tangerine': { add: ['tennis'] },
+  'auraup-motion-polo': { add: ['tennis'] },
+  'auraup-panelled-jersey': { add: ['tennis'] },
+
+  // Same tee as the Flex Black, so it trains too
+  'auraup-flex-tee-white': { add: ['gym'] },
+
+  // The photo check read it as white
+  'auraup-tank-top-gray': { colour: 'light grey' },
+
+  // No bottoms were marked for work. These black tapered pairs are the
+  // most polished; remove these two lines if Ebuka disagrees.
+  'auraup-black-sweat-pant': { add: ['work', 'going_out'] },
+  'auraup-sport-plain-black-joggers': { add: ['work'] },
+
+  // Checked from the photo: a women's two-piece, cropped half-zip
+  // pullover with matching shorts, sold as one product.
+  'auraup-monogram-hoodie': {
+    category: 'set',
+    what: 'cropped half-zip pullover and shorts set',
+    colour: 'light heather grey',
+    colour_family: 'neutral',
+    gender: 'women',
+    pairs_with: 'white socks and clean trainers; complete on its own'
+  },
+
+  // Colours checked against the product photos
+  'auraup-white-tee': { colour: 'white' },
+  'auraup-classic-black-copy': { colour: 'black' },
+  'auraup-wine-long-sleeve-tee': { colour: 'wine', colour_family: 'accent' }
+};
+
+const PROFILE_CATEGORIES = ['underwear', 'socks', 'set', 'bottom', 'top', 'outerwear', 'accessory'];
+
+function applyOverride(profile, override) {
+  const merged = applyOverrideRaw(profile, override);
+  if (merged && !PROFILE_CATEGORIES.includes(merged.category)) {
+    // A typo like "outware" would confuse the outfit builder, so ignore it
+    // and let the product name decide instead.
+    console.warn(`Unknown profile category "${merged.category}", ignoring it`);
+    return { ...merged, category: null };
+  }
+  return merged;
+}
+
+function applyOverrideRaw(profile, override) {
+  if (!profile) return null;
+  if (!override) return profile;
+
+  const merged = { ...profile, occasions: [...(profile.occasions || [])] };
+
+  Object.keys(override).forEach((key) => {
+    if (key === 'add') {
+      override.add.forEach((o) => { if (!merged.occasions.includes(o)) merged.occasions.push(o); });
+    } else if (key === 'remove') {
+      merged.occasions = merged.occasions.filter((o) => !override.remove.includes(o));
+    } else {
+      merged[key] = override[key];
+    }
+  });
+
+  return merged;
+}
+
 const PROFILE_MODEL = process.env.ANTHROPIC_PROFILE_MODEL || MODEL;
 
 const PROFILE_OCCASIONS = ['gym', 'tennis', 'running', 'lounge', 'work', 'everyday', 'going_out', 'travel'];
@@ -1024,7 +1095,7 @@ async function getKnowledge() {
 // PRODUCT CLASSIFICATION
 // ==================================================
 
-const ROLE_ORDER = ['underwear', 'socks', 'bottom', 'top', 'outerwear', 'accessory'];
+const ROLE_ORDER = ['underwear', 'socks', 'set', 'bottom', 'top', 'outerwear', 'accessory'];
 
 const SPORT_OCCASIONS = new Set(['gym', 'tennis', 'running', 'training', 'sport']);
 
@@ -1188,15 +1259,19 @@ function toCatalogItem(product, currency, collections = []) {
       ? product.images[0].src
       : '';
 
+  const profile = applyOverride(PRODUCT_PROFILES[product.handle], PROFILE_OVERRIDES[product.handle]);
+
   return {
+    gender:
+      (profile && ['men', 'women', 'unisex'].includes(profile.gender) && profile.gender) ||
+      genderFrom(tags, product.title || '', product.product_type || '', collections),
     handle: product.handle,
     title: product.title || '',
     type: product.product_type || '',
     occasions,
     collections,
-    gender: genderFrom(tags, product.title || '', product.product_type || '', collections),
     about: strip(product.body_html).slice(0, 160),
-    profile: PRODUCT_PROFILES[product.handle] || null,
+    profile,
     preorder,
     available: inStock.length > 0,
     sizes: uniqueList(inStock.map((variant) => valueAt(variant, sizeIndex))),
@@ -1291,6 +1366,7 @@ function catalogText(items) {
         `for=${p.gender}`,
         p.collections.length ? `collections=${p.collections.join('/')}` : null,
         p.occasions.length ? `occasions=${p.occasions.join('/')}` : null,
+        p.profile && p.profile.category ? `kind=${p.profile.category}` : null,
         p.profile ? `is=${p.profile.what}` : null,
         p.profile ? `colour=${p.profile.colour} (${p.profile.colour_family})` : null,
         p.profile && p.profile.occasions && p.profile.occasions.length
@@ -1334,8 +1410,28 @@ function buildOutfits(input, catalog, userText) {
   // unisex pieces suit everyone; otherwise the piece must match the shopper
   const fits = (p) => !gender || p.gender === 'unisex' || p.gender === gender;
 
-  const pool = (test) =>
-    catalog.filter((p) => p.available && fits(p) && suitsOccasion(p, occasion) && test(p));
+  // Prefer pieces made for this occasion. If a category has none (for
+  // example no bottoms suit work), use the most everyday-appropriate ones
+  // instead of leaving the outfit incomplete.
+  const suitsHere = (p) => suitsOccasion(p, occasion);
+
+  const pool = (test) => {
+    const all = catalog.filter((p) => p.available && fits(p) && test(p));
+    const strict = all.filter(suitsHere);
+    if (strict.length) return strict;
+    const everyday = all.filter((p) => suitsOccasion(p, 'everyday'));
+    return everyday.length ? everyday : all;
+  };
+
+  const roleCovered = {};
+  ROLE_ORDER.forEach((role) => {
+    roleCovered[role] = catalog.some(
+      (p) => p.available && fits(p) && roleFor(p, null) === role && suitsHere(p)
+    );
+  });
+
+  const allowedHere = (p, role) =>
+    suitsHere(p) || (!roleCovered[role] && suitsOccasion(p, 'everyday'));
 
   const socks = pool(isSocks);
   const underwear = pool(isUnderwear);
@@ -1390,7 +1486,7 @@ function buildOutfits(input, catalog, userText) {
           removed.push(`${product.title} (jackets are lounge only)`);
           return null;
         }
-        if (!suitsOccasion(product, occasion)) {
+        if (!allowedHere(product, roleFor(product, role))) {
           removed.push(`${product.title} (not suitable for ${normOccasion(occasion)})`);
           return null;
         }
@@ -1403,8 +1499,14 @@ function buildOutfits(input, catalog, userText) {
     // a piece in the wrong slot (a tee put in "bottom") only gets in if
     // its real role is still free.
     const items = [];
+    // A set is a top and bottom in one, so it claims both slots.
+    const claims = (role) => (role === 'set' ? ['set', 'top', 'bottom'] : [role]);
+    const claimed = (role) =>
+      claims(role).some((r) => takenRoles.has(r)) ||
+      ((role === 'top' || role === 'bottom') && takenRoles.has('set'));
+
     const accept = (c) => {
-      if (seen.has(c.product.handle) || takenRoles.has(c.actualRole)) return false;
+      if (seen.has(c.product.handle) || claimed(c.actualRole)) return false;
 
       if (capJackets && isJacket(c.product)) {
         if (jacketTaken) {
@@ -1414,7 +1516,7 @@ function buildOutfits(input, catalog, userText) {
         jacketTaken = true;
       }
 
-      takenRoles.add(c.actualRole);
+      claims(c.actualRole).forEach((r) => takenRoles.add(r));
       seen.add(c.product.handle);
       items.push({ ...c.product, role: c.actualRole });
       return true;
@@ -1425,6 +1527,7 @@ function buildOutfits(input, catalog, userText) {
 
     rightSlot.forEach(accept);
     wrongSlot.forEach((c) => {
+      if (seen.has(c.product.handle)) return;
       if (!accept(c)) removed.push(`${c.product.title} (was not a ${c.slotRole})`);
     });
 
@@ -1434,6 +1537,7 @@ function buildOutfits(input, catalog, userText) {
     // matching category, rotating so the three looks don't repeat.
     const fill = (role, list) => {
       if (hasRole(role) || !list.length) return;
+      if ((role === 'top' || role === 'bottom') && hasRole('set')) return;
       for (let i = 0; i < list.length; i++) {
         const pick = list[(index + i) % list.length];
         if (!seen.has(pick.handle)) {
@@ -1536,7 +1640,7 @@ function productsNamedIn(reply, catalog) {
 const PROFILE_INSTRUCTIONS =
   'You are cataloguing pieces for AuraUP, a Lagos luxury athleisure brand, so an AI stylist can build outfits. ' +
   'Look carefully at the photo and the details, then reply with ONLY a JSON object, no other text:\n' +
-  '{"category": one of "underwear", "socks", "bottom", "top", "outerwear", "accessory",\n' +
+  '{"category": one of "underwear", "socks", "set", "bottom", "top", "outerwear", "accessory". Use "set" when the photo shows a matching top and bottom sold together as one product,\n' +
   ' "what": what the piece actually is in under 10 words, e.g. "sleeveless ribbed tank top" or "relaxed wide-leg sweatpants",\n' +
   ' "colour": the main colour in plain words, e.g. "light heather grey",\n' +
   ' "colour_family": "neutral" for black, white, grey, charcoal, slate, navy, cream, beige or stone, otherwise "accent",\n' +
@@ -1561,7 +1665,7 @@ function sizedImage(url, width) {
 }
 
 function cleanProfile(raw) {
-  const categories = ['underwear', 'socks', 'bottom', 'top', 'outerwear', 'accessory'];
+  const categories = PROFILE_CATEGORIES;
   const category = categories.includes(raw && raw.category) ? raw.category : null;
   if (!category) throw new Error('bad category');
 
@@ -1685,11 +1789,11 @@ const tools = [
               },
               bottom: {
                 type: 'string',
-                description: 'Handle of the shorts, pants or joggers from the LIVE CATALOG'
+                description: 'Handle of the shorts, pants or joggers from the LIVE CATALOG. If using a set, put the set handle here and in top.'
               },
               top: {
                 type: 'string',
-                description: 'Handle of the top from the LIVE CATALOG'
+                description: 'Handle of the top from the LIVE CATALOG. If using a set, put the set handle here and in bottom.'
               },
               socks: {
                 type: 'string',
@@ -1754,8 +1858,9 @@ function buildSystem(knowledge, catalog) {
 
     `YOU ARE A STYLIST:\n` +
     `- Most products include a profile taken from their photo: is (what the piece actually is), colour, good for (the occasions it suits) and pairs with. Trust these over the product name.\n` +
+    `- kind=set means a matching top and bottom sold together. It covers both the top and the bottom of an outfit, so only add underwear, socks and, if suitable, an outer layer.\n` +
     `- Only use a piece for an occasion listed in its good for. Never put gym or sleeveless pieces in work, lounge or going-out looks.\n` +
-    `- Work means smart-casual: clean, covered, polished pieces only.\n` +
+    `- Work means smart-casual: clean, covered, polished pieces only. If no piece in a category is marked for work, choose the darkest, neatest everyday option (for example black tapered joggers).\n` +
     `- Set the occasion in show_outfits to match the request exactly (work for office or work, going_out for dinner or nights out).\n\n` +
 
     `CATALOG RULES:\n` +
@@ -1862,7 +1967,7 @@ export default async function handler(req, res) {
     return res.status(200).send(
       `// Profiled ${done} products.` +
       (failed.length ? ` Failed: ${failed.join(', ')}. Run with &missing=1 after pasting to retry.` : '') +
-      `\n// Paste everything below over the line: const PRODUCT_PROFILES = {};\n\n` +
+      `\n// Paste everything below over the whole PRODUCT_PROFILES block. Leave PROFILE_OVERRIDES as it is.\n\n` +
       `const PRODUCT_PROFILES = ${JSON.stringify(results, null, 2)};\n`
     );
   }
