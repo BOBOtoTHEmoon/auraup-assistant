@@ -238,7 +238,10 @@ function isUnderwear(product) {
 }
 
 function isJacket(product) {
-  return /\bjackets?\b/i.test(labelOf(product));
+  const label = labelOf(product);
+  if (/\bjackets?\b/i.test(label)) return true;
+  if (/\b(hoodie|tee|t-shirt|shorts|pants|sweatpants|joggers|socks|boxers)\b/i.test(label)) return false;
+  return (product.collections || []).some((c) => /\bjackets?\b/i.test(c) && !/hood/i.test(c));
 }
 
 // Fixed categories always win over whatever role the model picked.
@@ -272,7 +275,32 @@ function uniqueList(values) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-function toCatalogItem(product, currency) {
+const WOMEN_WORDS = /\b(women'?s?|womens|womenswear|ladies|female|her)\b/i;
+const MEN_WORDS = /\b(men'?s?|mens|menswear|male|him)\b/i;
+
+// Men / women / unisex. Checks tags first, then the collections the
+// product sits in (e.g. "Men", "Women", "For Her"), then the title.
+function genderFrom(tags, title, type, collections) {
+  const lower = tags.map((tag) => tag.toLowerCase());
+
+  if (lower.some((t) => /^(gender_)?unisex$/.test(t))) return 'unisex';
+  if (lower.some((t) => /^(gender_)?(women|womens|women's|ladies|female)$/.test(t))) return 'women';
+  if (lower.some((t) => /^(gender_)?(men|mens|men's|male)$/.test(t))) return 'men';
+
+  const inWomen = collections.some((c) => WOMEN_WORDS.test(c));
+  const inMen = collections.some((c) => MEN_WORDS.test(c));
+  if (inWomen && !inMen) return 'women';
+  if (inMen && !inWomen) return 'men';
+  if (inMen && inWomen) return 'unisex';
+
+  const text = `${title} ${type}`;
+  if (WOMEN_WORDS.test(text)) return 'women';
+  if (MEN_WORDS.test(text)) return 'men';
+
+  return 'unisex';
+}
+
+function toCatalogItem(product, currency, collections = []) {
   const tags = (
     Array.isArray(product.tags)
       ? product.tags
@@ -312,6 +340,9 @@ function toCatalogItem(product, currency) {
     title: product.title || '',
     type: product.product_type || '',
     occasions,
+    collections,
+    gender: genderFrom(tags, product.title || '', product.product_type || '', collections),
+    about: strip(product.body_html).slice(0, 160),
     preorder,
     available: inStock.length > 0,
     sizes: uniqueList(inStock.map((variant) => valueAt(variant, sizeIndex))),
@@ -322,13 +353,53 @@ function toCatalogItem(product, currency) {
   };
 }
 
+// Collections are how AuraUP groups products (Men, Women, categories),
+// so we read every collection and note which products sit in it.
+const SKIP_COLLECTIONS = new Set(['all', 'frontpage', 'all-products']);
+
+async function getCollectionMap() {
+  const map = new Map();
+  let collections = [];
+
+  try {
+    const data = await shopJson('/collections.json?limit=250');
+    collections = (data && Array.isArray(data.collections) ? data.collections : [])
+      .filter((c) => c && c.handle && !SKIP_COLLECTIONS.has(c.handle));
+  } catch (error) {
+    console.error('Collections fetch failed:', error.message);
+    return map;
+  }
+
+  await Promise.all(
+    collections.slice(0, 40).map(async (collection) => {
+      try {
+        const data = await shopJson(
+          `/collections/${encodeURIComponent(collection.handle)}/products.json?limit=250`
+        );
+        const products = data && Array.isArray(data.products) ? data.products : [];
+
+        products.forEach((product) => {
+          if (!product || !product.handle) return;
+          const list = map.get(product.handle) || [];
+          list.push(collection.title || collection.handle);
+          map.set(product.handle, list);
+        });
+      } catch (error) {
+        console.error(`Collection fetch failed for ${collection.handle}:`, error.message);
+      }
+    })
+  );
+
+  return map;
+}
+
 async function getCatalog() {
   if (catalogCache.items.length && Date.now() - catalogCache.at < CATALOG_TTL) {
     return catalogCache.items;
   }
 
   try {
-    const currency = await getCurrency();
+    const [currency, collectionMap] = await Promise.all([getCurrency(), getCollectionMap()]);
     const raw = [];
 
     for (let page = 1; page <= 4; page++) {
@@ -339,7 +410,9 @@ async function getCatalog() {
     }
 
     catalogCache = {
-      items: raw.filter((p) => p && p.handle).map((p) => toCatalogItem(p, currency)),
+      items: raw
+        .filter((p) => p && p.handle)
+        .map((p) => toCatalogItem(p, currency, collectionMap.get(p.handle) || [])),
       at: Date.now()
     };
   } catch (error) {
@@ -361,14 +434,17 @@ function catalogText(items) {
         `handle=${p.handle}`,
         `title=${p.title}`,
         p.type ? `type=${p.type}` : null,
+        `for=${p.gender}`,
+        p.collections.length ? `collections=${p.collections.join('/')}` : null,
         p.occasions.length ? `occasions=${p.occasions.join('/')}` : null,
-        isJacket(p) ? 'LOUNGE ONLY, never for sport' : null,
+        isJacket(p) ? 'JACKET: luxury lounge piece, never for sport' : null,
         p.price ? `price=${p.price}` : null,
         p.colours.length ? `colours=${p.colours.join('/')}` : null,
         p.available
           ? `in-stock sizes=${p.sizes.length ? p.sizes.join('/') : 'one size'}`
           : 'SOLD OUT',
-        p.preorder ? 'PRE-ORDER' : null
+        p.preorder ? 'PRE-ORDER' : null,
+        p.about ? `about=${p.about}` : null
       ].filter(Boolean);
 
       return '- ' + parts.join(' | ');
@@ -391,11 +467,22 @@ function buildOutfits(input, catalog, userText) {
   const occasion = String((input && input.occasion) || '').toLowerCase();
   const sport = SPORT_OCCASIONS.has(occasion) || SPORT_WORDS.test(userText);
 
-  const socks = catalog.filter((p) => p.available && isSocks(p));
-  const underwear = catalog.filter((p) => p.available && isUnderwear(p));
+  const gender = ['men', 'women'].includes(String((input && input.gender) || '').toLowerCase())
+    ? String(input.gender).toLowerCase()
+    : null;
+
+  // unisex pieces suit everyone; otherwise the piece must match the shopper
+  const fits = (p) => !gender || p.gender === 'unisex' || p.gender === gender;
+
+  const socks = catalog.filter((p) => p.available && isSocks(p) && fits(p));
+  const underwear = catalog.filter((p) => p.available && isUnderwear(p) && fits(p));
 
   const requested = Array.isArray(input && input.outfits) ? input.outfits : [];
   const outfits = [];
+
+  // Outside lounge requests, only one of the three looks may use a jacket.
+  const capJackets = !sport && occasion !== 'lounge';
+  let jacketTaken = false;
 
   const slots = [
     ['underwear', 'underwear'],
@@ -424,9 +511,20 @@ function buildOutfits(input, catalog, userText) {
           removed.push(`${product.title} (sold out)`);
           return null;
         }
+        if (!fits(product)) {
+          removed.push(`${product.title} (made for ${product.gender})`);
+          return null;
+        }
         if (sport && isJacket(product)) {
           removed.push(`${product.title} (jackets are lounge only)`);
           return null;
+        }
+        if (capJackets && isJacket(product)) {
+          if (jacketTaken) {
+            removed.push(`${product.title} (only one look gets a jacket)`);
+            return null;
+          }
+          jacketTaken = true;
         }
         if (seen.has(product.handle)) return null;
 
@@ -534,6 +632,11 @@ const tools = [
     input_schema: {
       type: 'object',
       properties: {
+        gender: {
+          type: 'string',
+          enum: ['men', 'women'],
+          description: 'Who the outfits are for. Only call once this is known.'
+        },
         occasion: {
           type: 'string',
           enum: ['gym', 'tennis', 'running', 'training', 'sport', 'lounge', 'everyday', 'travel', 'evening', 'other']
@@ -551,7 +654,7 @@ const tools = [
               },
               underwear: {
                 type: 'string',
-                description: 'Handle of the underwear (boxers) from the LIVE CATALOG'
+                description: 'Handle of the underwear from the LIVE CATALOG. Include it whenever underwear exists for this gender.'
               },
               bottom: {
                 type: 'string',
@@ -570,11 +673,21 @@ const tools = [
                 description: 'Optional handle of an outer layer. Never a jacket for sport.'
               }
             },
-            required: ['name', 'underwear', 'bottom', 'top', 'socks']
+            required: ['name', 'bottom', 'top', 'socks']
           }
         }
       },
-      required: ['occasion', 'outfits']
+      required: ['gender', 'occasion', 'outfits']
+    }
+  },
+  {
+    name: 'ask_gender',
+    description:
+      'Show Men and Women buttons so the shopper can say who the look is for. ' +
+      'Use this before building outfits when you do not yet know if the shopper wants menswear or womenswear.',
+    input_schema: {
+      type: 'object',
+      properties: {}
     }
   },
   {
@@ -618,22 +731,37 @@ function buildSystem(knowledge, catalog) {
     `- If a kind of product is not in the catalog, do not mention that kind of product at all.\n` +
     `- Whenever you name specific products, you MUST show them with show_outfits or show_products so the shopper sees a picture of every item you mention.\n\n` +
 
+    `MEN OR WOMEN:\n` +
+    `- Before building any outfit, you must know if it is for men or women. Each product shows for=men, for=women or for=unisex.\n` +
+    `- If the shopper has not made it clear (for example "for my girlfriend", "for him", "women's", "I'm a guy"), call ask_gender and ask one short question, such as "Happy to style that. Is this for men or women?" Do not build outfits in the same reply.\n` +
+    `- Once you know, remember it for the rest of the chat and do not ask again.\n` +
+    `- Only use pieces made for that gender or unisex. When single products are requested, prefer that gender too if known.\n\n` +
     `SOCKS:\n` +
     `- AuraUP socks finish every look. Whenever you recommend products, include a pair of AuraUP socks too, unless socks are sold out.\n\n` +
 
     `OUTFITS:\n` +
     `- When the shopper asks for an outfit, a fit, a look, or what to wear for any activity or occasion, always build THREE complete outfits and show them with show_outfits.\n` +
-    `- Each outfit is complete from the inside out: underwear, bottoms, top, an outer layer when it suits the occasion, and socks.\n` +
-    `- Make the three outfits clearly different in pieces or colours. Underwear and socks may repeat if the choice is limited.\n` +
-    `- When products list occasions, prefer pieces whose occasions match the request.\n\n` +
+    `- Each outfit is complete from the inside out: underwear, bottoms, top and socks. An outer layer is optional; add one only when it genuinely suits the occasion, never by default.\n` +
+    `- Each product lists the store collections it belongs to. Use them to understand what a piece is for, and prefer pieces from collections that match the request.\n` +
+    `- Underwear and socks may repeat across outfits if the choice is limited.\n\n` +
+
+    `COLOUR:\n` +
+    `- Build each outfit around one clear idea: either tonal (one colour family, such as all black or all grey), or a neutral base (black, white, grey, slate, ash, charcoal, navy, cream) with ONE colour accent (such as wine, green or olive).\n` +
+    `- Never put two accent or earthy colours together, such as wine with brown or taupe, or green with wine.\n` +
+    `- Anchor a bold accent piece with black, white or grey.\n` +
+    `- Work out each colour from the title, colours and about text. If a product's colour is still unclear, only use it in a simple tonal or neutral look.\n` +
+    `- Underwear and socks do not count toward the palette.\n` +
+    `- Make the three outfits clearly different, ideally one dark tonal, one light, and one with an accent.\n\n` +
 
     `JACKETS:\n` +
-    `- Jackets are AuraUP's luxury lounge pieces. Use them only for lounge and relaxed, non-sport looks.\n` +
+    `- Jackets are AuraUP's luxury lounge pieces. For lounge requests they are welcome in any outfit.\n` +
+    `- For any other non-sport request (work, everyday, travel, going out), use a jacket in at most ONE of the three outfits.\n` +
     `- Never recommend a jacket for gym, tennis, running, training or any sport, not even as an extra. ` +
     `For sport outfits, add a non-jacket outer layer only if one suits the activity; otherwise leave the outer layer out.\n\n` +
 
     `WRITING THE REPLY:\n` +
-    `- After show_outfits, write one short opening line, then one short line per outfit giving its name and naming every piece in it, including the underwear and the socks. Describe exactly what the tool result says was shown, nothing more and nothing less.\n` +
+    `- After show_outfits, write one short opening line, then ONE short sentence per outfit giving its name and naming every piece in it, including the underwear and the socks. Describe exactly what the tool result says was shown, nothing more and nothing less.\n` +
+    `- Keep the whole outfit reply brief, around 80 words. No closing summary paragraph.\n` +
     `- The pictures, names and prices appear under your text, so do not list links or repeat every price unless asked.\n` +
     `- Write in plain text only. No Markdown: no ** bold, no # headings, no asterisks or bullet symbols.\n` +
     `- Otherwise keep answers to a few sentences unless the shopper asks for more detail.\n\n` +
@@ -723,6 +851,7 @@ export default async function handler(req, res) {
     let outfits = [];
     let products = [];
     let reply = '';
+    let quickReplies = [];
 
     // Usually two rounds: show the pieces, then write the text.
     for (let step = 0; step < 4; step++) {
@@ -765,6 +894,16 @@ export default async function handler(req, res) {
           };
         }
 
+        if (block.name === 'ask_gender') {
+          quickReplies = ['Men', 'Women'];
+
+          return {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: 'Men and Women buttons are now shown under your message. Write one short question asking who the look is for. Do not build outfits yet.'
+          };
+        }
+
         if (block.name === 'show_products') {
           const built = buildProducts(block.input, catalog);
           products = products.concat(built);
@@ -802,7 +941,8 @@ export default async function handler(req, res) {
     return res.status(200).json({
       reply: reply || `I can connect you with our team on WhatsApp ${WHATSAPP} for that.`,
       outfits: outfits.map((outfit) => ({ name: outfit.name, items: outfit.items })),
-      products: cards.slice(0, 5)
+      products: cards.slice(0, 5),
+      quick_replies: outfits.length ? [] : quickReplies
     });
   } catch (error) {
     console.error('AuraUP assistant error:', error);
