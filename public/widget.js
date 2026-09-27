@@ -263,11 +263,11 @@
       'background:#fff;' +
       'border:1px solid rgba(42,42,42,.08);' +
       'border-radius:12px;' +
-      'padding:14px 0 14px 14px;' +
+      'padding:14px;' +
     '}' +
 
     '.auaa-outfit-name{' +
-      'margin:0 14px 10px 0;' +
+      'margin:0 0 10px;' +
       'font-size:.6rem;' +
       'font-weight:500;' +
       'letter-spacing:.2em;' +
@@ -275,30 +275,26 @@
       'color:#1a1a1a;' +
     '}' +
 
+    // Every piece visible at once: 3 per line, wraps to a second line
     '.auaa-row{' +
-      'display:flex;' +
-      'gap:8px;' +
-      'overflow-x:auto;' +
-      'padding-right:14px;' +
-      'scroll-snap-type:x proximity;' +
-      '-webkit-overflow-scrolling:touch;' +
-      'scrollbar-width:none;' +
+      'display:grid;' +
+      'grid-template-columns:repeat(3,minmax(0,1fr));' +
+      'gap:12px 8px;' +
     '}' +
 
-    '.auaa-row::-webkit-scrollbar{display:none;}' +
-
     '.auaa-tile{' +
-      'flex:0 0 100px;' +
+      'display:block;' +
+      'min-width:0;' +
       'text-decoration:none;' +
       'color:inherit;' +
-      'scroll-snap-align:start;' +
     '}' +
 
     '.auaa-tile img,' +
     '.auaa-tile-img{' +
       'display:block;' +
-      'width:100px;' +
-      'height:124px;' +
+      'width:100%;' +
+      'aspect-ratio:4/5;' +
+      'height:auto;' +
       'object-fit:cover;' +
       'background:#eeedea;' +
       'border-radius:8px;' +

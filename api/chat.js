@@ -397,17 +397,41 @@ function buildOutfits(input, catalog, userText) {
   const requested = Array.isArray(input && input.outfits) ? input.outfits : [];
   const outfits = [];
 
+  const slots = [
+    ['underwear', 'underwear'],
+    ['socks', 'socks'],
+    ['bottom', 'bottom'],
+    ['top', 'top'],
+    ['outer_layer', 'outerwear']
+  ];
+
   requested.slice(0, 3).forEach((outfit, index) => {
     const seen = new Set();
+    const removed = [];
 
-    const items = (Array.isArray(outfit.items) ? outfit.items : [])
-      .map((item) => {
-        const product = byHandle.get(String((item && item.handle) || '').trim());
-        if (!product || !product.available || seen.has(product.handle)) return null;
-        if (sport && isJacket(product)) return null;
+    const items = slots
+      .map(([key, role]) => {
+        const handle = String((outfit && outfit[key]) || '').trim();
+        if (!handle) return null;
+
+        const product = byHandle.get(handle);
+
+        if (!product) {
+          removed.push(`${handle} (not in catalog)`);
+          return null;
+        }
+        if (!product.available) {
+          removed.push(`${product.title} (sold out)`);
+          return null;
+        }
+        if (sport && isJacket(product)) {
+          removed.push(`${product.title} (jackets are lounge only)`);
+          return null;
+        }
+        if (seen.has(product.handle)) return null;
 
         seen.add(product.handle);
-        return { ...product, role: roleFor(product, item.role) };
+        return { ...product, role: roleFor(product, role) };
       })
       .filter(Boolean);
 
@@ -426,7 +450,8 @@ function buildOutfits(input, catalog, userText) {
     if (items.length >= 2) {
       outfits.push({
         name: String(outfit.name || `Look ${index + 1}`).slice(0, 40),
-        items
+        items,
+        removed
       });
     }
   });
@@ -457,14 +482,19 @@ function describeOutfits(outfits) {
   }
 
   return (
-    'Shown to the shopper exactly as follows (describe these, nothing else):\n' +
+    'These outfits are now on screen with a picture of every piece:\n' +
     outfits
       .map(
         (outfit) =>
           `${outfit.name}: ` +
-          outfit.items.map((item) => `${item.title} (${item.role})`).join(', ')
+          outfit.items.map((item) => `${item.title} (${item.role})`).join(', ') +
+          (outfit.removed.length
+            ? `. Removed and NOT shown: ${outfit.removed.join(', ')}`
+            : '')
       )
-      .join('\n')
+      .join('\n') +
+    '\n\nNow write the reply. For each outfit, write one short line that names EVERY piece listed above for it, ' +
+    'including the underwear and the socks. Do not mention any removed piece.'
   );
 }
 
@@ -519,27 +549,28 @@ const tools = [
                 type: 'string',
                 description: 'Short outfit name, two to four words'
               },
-              items: {
-                type: 'array',
-                minItems: 2,
-                maxItems: 6,
-                items: {
-                  type: 'object',
-                  properties: {
-                    handle: {
-                      type: 'string',
-                      description: 'Exact product handle from the LIVE CATALOG'
-                    },
-                    role: {
-                      type: 'string',
-                      enum: ROLE_ORDER
-                    }
-                  },
-                  required: ['handle', 'role']
-                }
+              underwear: {
+                type: 'string',
+                description: 'Handle of the underwear (boxers) from the LIVE CATALOG'
+              },
+              bottom: {
+                type: 'string',
+                description: 'Handle of the shorts, pants or joggers from the LIVE CATALOG'
+              },
+              top: {
+                type: 'string',
+                description: 'Handle of the top from the LIVE CATALOG'
+              },
+              socks: {
+                type: 'string',
+                description: 'Handle of the AuraUP socks from the LIVE CATALOG'
+              },
+              outer_layer: {
+                type: 'string',
+                description: 'Optional handle of an outer layer. Never a jacket for sport.'
               }
             },
-            required: ['name', 'items']
+            required: ['name', 'underwear', 'bottom', 'top', 'socks']
           }
         }
       },
@@ -602,7 +633,7 @@ function buildSystem(knowledge, catalog) {
     `For sport outfits, add a non-jacket outer layer only if one suits the activity; otherwise leave the outer layer out.\n\n` +
 
     `WRITING THE REPLY:\n` +
-    `- After show_outfits, write one short opening line, then one short line per outfit giving its name and its pieces. Describe exactly what the tool result says was shown.\n` +
+    `- After show_outfits, write one short opening line, then one short line per outfit giving its name and naming every piece in it, including the underwear and the socks. Describe exactly what the tool result says was shown, nothing more and nothing less.\n` +
     `- The pictures, names and prices appear under your text, so do not list links or repeat every price unless asked.\n` +
     `- Write in plain text only. No Markdown: no ** bold, no # headings, no asterisks or bullet symbols.\n` +
     `- Otherwise keep answers to a few sentences unless the shopper asks for more detail.\n\n` +
@@ -770,7 +801,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       reply: reply || `I can connect you with our team on WhatsApp ${WHATSAPP} for that.`,
-      outfits,
+      outfits: outfits.map((outfit) => ({ name: outfit.name, items: outfit.items })),
       products: cards.slice(0, 5)
     });
   } catch (error) {
