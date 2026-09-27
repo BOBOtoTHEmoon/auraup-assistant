@@ -1,5 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+// Outfit answers can take two model calls, so give the function room.
+export const config = { maxDuration: 60 };
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
 });
@@ -31,14 +34,13 @@ const BRAND_FACTS =
   '- AuraUP is a Lagos-based luxury athleisure brand founded in 2025. Tagline: "Quiet Strength in Motion".\n' +
   '- Physical store: Shop 39, Westbrook Mall, Chisco, Ikate, Lekki, Lagos.\n' +
   '- Store hours: Monday to Sunday, 10am to 7pm.\n' +
-  '- Contact: WhatsApp +234 913 039 3648, email hello@auraupstore.com, Instagram @auraupstore.\n'+
+  '- Contact: WhatsApp +234 913 039 3648, email hello@auraupstore.com, Instagram @auraupstore.\n' +
   '- Founder: AuraUP was founded by Ebuka in Lagos in 2025. He built it around subtle, understated luxury: premium materials and timeless everyday pieces.\n' +
-  '- The brand launched with a Sip & Shop event at Westbrook Mall, Ikate, Lagos.\n' ;
+  '- The brand launched with a Sip & Shop event at Westbrook Mall, Ikate, Lagos.\n';
 
 
 // ==================================================
 // CORS
-// Allow both AuraUP domains
 // ==================================================
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -47,93 +49,52 @@ const DEFAULT_ALLOWED_ORIGINS = [
 ];
 
 const ALLOWED_ORIGINS = new Set(
-  (
-    process.env.ALLOW_ORIGINS ||
-    DEFAULT_ALLOWED_ORIGINS.join(',')
-  )
+  (process.env.ALLOW_ORIGINS || DEFAULT_ALLOWED_ORIGINS.join(','))
     .split(',')
-    .map((value) =>
-      value.trim().replace(/\/+$/, '')
-    )
+    .map((value) => value.trim().replace(/\/+$/, ''))
     .filter(Boolean)
 );
 
 
 // ==================================================
-// FETCH WITH TIMEOUT
+// FETCH HELPERS
 // ==================================================
 
-async function fetchWithTimeout(
-  url,
-  options = {},
-  timeoutMs = 10000
-) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
   const controller = new AbortController();
-
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
+    return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
 }
 
-
-// ==================================================
-// PUBLIC SHOPIFY JSON REQUEST
-// NO TOKEN REQUIRED
-// ==================================================
-
 async function shopJson(path) {
-  const response = await fetchWithTimeout(
-    STORE_ORIGIN + path,
-    {
-      method: 'GET',
-
-      headers: {
-        Accept: 'application/json',
-        'User-Agent':
-          'AuraUP-Shopping-Assistant/1.0'
-      }
-    },
-    10000
-  );
+  const response = await fetchWithTimeout(STORE_ORIGIN + path, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'AuraUP-Shopping-Assistant/1.0'
+    }
+  });
 
   if (!response.ok) {
-    throw new Error(
-      `Shopify endpoint failed: ${response.status} ${path}`
-    );
+    throw new Error(`Shopify endpoint failed: ${response.status} ${path}`);
   }
 
   return response.json();
 }
 
-
-// ==================================================
-// PUBLIC SHOPIFY HTML REQUEST
-// Used for policies/pages
-// ==================================================
-
 async function shopHtml(path) {
-  const response = await fetchWithTimeout(
-    STORE_ORIGIN + path,
-    {
-      method: 'GET',
-
-      headers: {
-        Accept: 'text/html',
-        'User-Agent':
-          'AuraUP-Shopping-Assistant/1.0'
-      }
-    },
-    10000
-  );
+  const response = await fetchWithTimeout(STORE_ORIGIN + path, {
+    method: 'GET',
+    headers: {
+      Accept: 'text/html',
+      'User-Agent': 'AuraUP-Shopping-Assistant/1.0'
+    }
+  });
 
   if (!response.ok) {
     return '';
@@ -149,14 +110,8 @@ async function shopHtml(path) {
 
 function strip(html) {
   return String(html || '')
-    .replace(
-      /<script[\s\S]*?<\/script>/gi,
-      ' '
-    )
-    .replace(
-      /<style[\s\S]*?<\/style>/gi,
-      ' '
-    )
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -169,17 +124,10 @@ function strip(html) {
     .slice(0, 5000);
 }
 
-
 function mainContent(html) {
   const text = String(html || '');
-
-  const match = text.match(
-    /<main\b[^>]*>([\s\S]*?)<\/main>/i
-  );
-
-  return strip(
-    match ? match[1] : text
-  );
+  const match = text.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
+  return strip(match ? match[1] : text);
 }
 
 
@@ -187,1124 +135,650 @@ function mainContent(html) {
 // STORE CURRENCY
 // ==================================================
 
-let currencyCache = {
-  value: 'NGN',
-  at: 0
-};
-
+let currencyCache = { value: 'NGN', at: 0 };
 
 async function getCurrency() {
-  if (
-    Date.now() - currencyCache.at <
-    3600000
-  ) {
+  if (Date.now() - currencyCache.at < 3600000) {
     return currencyCache.value;
   }
 
   try {
-    const cart =
-      await shopJson('/cart.js');
-
+    const cart = await shopJson('/cart.js');
     currencyCache = {
-      value:
-        cart && cart.currency
-          ? cart.currency
-          : 'NGN',
-
+      value: cart && cart.currency ? cart.currency : 'NGN',
       at: Date.now()
     };
   } catch (error) {
-    currencyCache = {
-      value: 'NGN',
-      at: Date.now()
-    };
+    currencyCache = { value: 'NGN', at: Date.now() };
   }
 
   return currencyCache.value;
 }
 
-
-function moneyFromMinorUnits(
-  amount,
-  currency
-) {
+// products.json prices are already in major units, e.g. "45000.00"
+function formatMoney(amount, currency) {
   try {
-    return new Intl.NumberFormat(
-      'en-NG',
-      {
-        style: 'currency',
-        currency:
-          currency || 'NGN',
-        maximumFractionDigits: 2
-      }
-    ).format(
-      Number(amount || 0) / 100
-    );
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: currency || 'NGN',
+      maximumFractionDigits: 2
+    }).format(Number(amount || 0));
   } catch (error) {
-    return (
-      Number(amount || 0) /
-        100 +
-      ' ' +
-      (currency || 'NGN')
-    );
+    return Number(amount || 0) + ' ' + (currency || 'NGN');
   }
 }
 
 
 // ==================================================
-// AURAUP STORE KNOWLEDGE
-//
-// Cached for one hour so every customer message
-// doesn't download the policy pages again.
+// STORE KNOWLEDGE (policies and pages, cached 1 hour)
 // ==================================================
 
-let knowledgeCache = {
-  text: null,
-  at: 0
-};
-
+let knowledgeCache = { text: null, at: 0 };
 
 async function getKnowledge() {
-  if (
-    knowledgeCache.text !== null &&
-    Date.now() -
-      knowledgeCache.at <
-      3600000
-  ) {
+  if (knowledgeCache.text !== null && Date.now() - knowledgeCache.at < 3600000) {
     return knowledgeCache.text;
   }
 
-
   const sources = [
-    {
-      title:
-        'SHIPPING POLICY',
-      path:
-        '/policies/shipping-policy'
-    },
-
-    {
-      title:
-        'RETURNS / REFUND POLICY',
-      path:
-        '/policies/refund-policy'
-    },
-
-    {
-      title:
-        'ABOUT',
-      path:
-        '/pages/about'
-    },
-
-    {
-      title:
-        'CONTACT',
-      path:
-        '/pages/contact'
-    },
-
-    {
-      title:
-        'FAQ',
-      path:
-        '/pages/faq'
-    },
-
-    {
-      title:
-        'SIZE GUIDE',
-      path:
-        '/pages/size-guide'
-    },
-
-    {
-      title:
-        'SIZING',
-      path:
-        '/pages/sizing'
-    }
+    { title: 'SHIPPING POLICY', path: '/policies/shipping-policy' },
+    { title: 'RETURNS / REFUND POLICY', path: '/policies/refund-policy' },
+    { title: 'ABOUT', path: '/pages/about' },
+    { title: 'CONTACT', path: '/pages/contact' },
+    { title: 'FAQ', path: '/pages/faq' },
+    { title: 'SIZE GUIDE', path: '/pages/size-guide' },
+    { title: 'SIZING', path: '/pages/sizing' }
   ];
 
+  const results = await Promise.all(
+    sources.map(async (source) => {
+      try {
+        const html = await shopHtml(source.path);
+        if (!html) return null;
 
-  const results =
-    await Promise.all(
-      sources.map(
-        async (source) => {
-          try {
-            const html =
-              await shopHtml(
-                source.path
-              );
+        const content = mainContent(html);
+        if (!content || content.length < 40) return null;
 
-            if (!html) {
-              return null;
-            }
+        return source.title + ':\n' + content;
+      } catch (error) {
+        console.error(`Knowledge fetch failed for ${source.path}:`, error.message);
+        return null;
+      }
+    })
+  );
 
-            const content =
-              mainContent(html);
+  const unique = Array.from(new Set(results.filter(Boolean)));
 
-            // Ignore genuinely empty pages
-            if (
-              !content ||
-              content.length < 40
-            ) {
-              return null;
-            }
-
-            return (
-              source.title +
-              ':\n' +
-              content
-            );
-          } catch (error) {
-            console.error(
-              `Knowledge fetch failed for ${source.path}:`,
-              error.message
-            );
-
-            return null;
-          }
-        }
-      )
-    );
-
-
-  // Remove accidental duplicate content
-  const unique = [];
-  const seen = new Set();
-
-  for (
-    const item of
-      results.filter(Boolean)
-  ) {
-    if (!seen.has(item)) {
-      seen.add(item);
-      unique.push(item);
-    }
-  }
-
-
-  knowledgeCache = {
-    text:
-      unique.join('\n\n'),
-
-    at:
-      Date.now()
-  };
-
-
+  knowledgeCache = { text: unique.join('\n\n'), at: Date.now() };
   return knowledgeCache.text;
 }
 
 
 // ==================================================
-// PRODUCT HELPERS
+// PRODUCT CLASSIFICATION
 // ==================================================
 
-function getHandleFromUrl(url) {
-  try {
-    const clean =
-      String(url || '')
-        .split('?')[0];
+const ROLE_ORDER = ['underwear', 'socks', 'bottom', 'top', 'outerwear', 'accessory'];
 
-    const match =
-      clean.match(
-        /\/products\/([^/?#]+)/i
-      );
+const SPORT_OCCASIONS = new Set(['gym', 'tennis', 'running', 'training', 'sport']);
 
-    return match
-      ? decodeURIComponent(
-          match[1]
-        )
-      : '';
-  } catch (error) {
-    return '';
-  }
+const SPORT_WORDS =
+  /\b(gym|tennis|workout|work out|training|train|run|running|jog|jogging|sport|sports|fitness|exercise|court|pilates|yoga|football|basketball|padel)\b/i;
+
+function labelOf(product) {
+  return (product.title || '') + ' ' + (product.type || '');
 }
 
+function isSocks(product) {
+  return /\bsocks?\b/i.test(labelOf(product));
+}
 
-function normalizeImage(image) {
-  let value = image;
+function isUnderwear(product) {
+  return /\b(boxers?|briefs?|trunks?|underwear)\b/i.test(labelOf(product));
+}
 
-  if (
-    value &&
-    typeof value === 'object'
-  ) {
-    value =
-      value.url ||
-      value.src ||
-      '';
-  }
+function isJacket(product) {
+  return /\bjackets?\b/i.test(labelOf(product));
+}
 
-  value =
-    String(value || '');
-
-  if (
-    value.startsWith('//')
-  ) {
-    return 'https:' + value;
-  }
-
-  return value;
+// Fixed categories always win over whatever role the model picked.
+function roleFor(product, suggested) {
+  if (isSocks(product)) return 'socks';
+  if (isUnderwear(product)) return 'underwear';
+  if (isJacket(product)) return 'outerwear';
+  return ROLE_ORDER.includes(suggested) ? suggested : 'top';
 }
 
 
 // ==================================================
-// PRODUCT OPTIONS
-// Builds Size / Colour etc.
-// ==================================================
-
-function buildOptions(product) {
-  const variants =
-    Array.isArray(
-      product.variants
-    )
-      ? product.variants
-      : [];
-
-
-  const rawOptions =
-    Array.isArray(
-      product.options
-    )
-      ? product.options
-      : [];
-
-
-  return rawOptions.map(
-    (option, index) => {
-
-      const name =
-        typeof option ===
-        'string'
-          ? option
-          : (
-              option &&
-              option.name
-            ) ||
-            `Option ${index + 1}`;
-
-
-      let values = [];
-
-
-      if (
-        option &&
-        typeof option ===
-          'object' &&
-        Array.isArray(
-          option.values
-        )
-      ) {
-        values =
-          option.values;
-      } else {
-        values =
-          variants
-
-            .map(
-              (variant) => {
-
-                if (
-                  Array.isArray(
-                    variant.options
-                  ) &&
-                  variant.options[
-                    index
-                  ] !==
-                    undefined
-                ) {
-                  return variant
-                    .options[
-                      index
-                    ];
-                }
-
-                return variant[
-                  `option${index + 1}`
-                ];
-              }
-            )
-
-            .filter(Boolean);
-      }
-
-
-      return {
-        name,
-
-        values:
-          Array.from(
-            new Set(values)
-          )
-      };
-    }
-  );
-}
-
-
-// ==================================================
-// LIVE PRODUCT SEARCH
+// LIVE CATALOG
 //
-// 1. Predictive Search finds matching products
-// 2. /products/{handle}.js gets live variants,
-//    sizes, prices and stock.
+// The whole catalog is small, so we load it once
+// (public /products.json, no token) and give the
+// model the full list. That lets it build complete
+// outfits across every category in one go.
+// Cached for 5 minutes so stock stays fresh.
 // ==================================================
 
-async function searchProducts(q) {
-  const query =
-    String(q || '')
-      .trim();
+const CATALOG_TTL = 5 * 60 * 1000;
+let catalogCache = { items: [], at: 0 };
 
-  if (!query) {
-    return [];
+function normalizeImage(value) {
+  const src = String(value || '');
+  return src.startsWith('//') ? 'https:' + src : src;
+}
+
+function uniqueList(values) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function toCatalogItem(product, currency) {
+  const tags = (
+    Array.isArray(product.tags)
+      ? product.tags
+      : String(product.tags || '').split(',')
+  )
+    .map((tag) => String(tag).trim())
+    .filter(Boolean);
+
+  const occasions = tags
+    .filter((tag) => /^occasion_/i.test(tag))
+    .map((tag) => tag.replace(/^occasion_/i, '').toLowerCase());
+
+  const preorder = tags.some((tag) => /pre-?order/i.test(tag));
+
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const options = Array.isArray(product.options) ? product.options : [];
+
+  const sizeIndex = options.findIndex((o) => /size/i.test((o && o.name) || ''));
+  const colourIndex = options.findIndex((o) => /colou?r/i.test((o && o.name) || ''));
+
+  const valueAt = (variant, index) =>
+    index < 0 ? null : variant['option' + (index + 1)];
+
+  const inStock = variants.filter((variant) => variant.available);
+
+  const prices = variants
+    .map((variant) => Number(variant.price))
+    .filter((price) => !Number.isNaN(price));
+
+  const firstImage =
+    Array.isArray(product.images) && product.images[0]
+      ? product.images[0].src
+      : '';
+
+  return {
+    handle: product.handle,
+    title: product.title || '',
+    type: product.product_type || '',
+    occasions,
+    preorder,
+    available: inStock.length > 0,
+    sizes: uniqueList(inStock.map((variant) => valueAt(variant, sizeIndex))),
+    colours: uniqueList(variants.map((variant) => valueAt(variant, colourIndex))),
+    price: prices.length ? formatMoney(Math.min(...prices), currency) : '',
+    image: normalizeImage(firstImage),
+    url: `${PUBLIC_ORIGIN}/products/${encodeURIComponent(product.handle)}`
+  };
+}
+
+async function getCatalog() {
+  if (catalogCache.items.length && Date.now() - catalogCache.at < CATALOG_TTL) {
+    return catalogCache.items;
   }
-
-
-  const currency =
-    await getCurrency();
-
-
-  const searchUrl =
-    new URL(
-      '/search/suggest.json',
-      STORE_ORIGIN
-    );
-
-
-  searchUrl.searchParams.set(
-    'q',
-    query
-  );
-
-  searchUrl.searchParams.set(
-    'resources[type]',
-    'product'
-  );
-
-  searchUrl.searchParams.set(
-    'resources[limit]',
-    '5'
-  );
-
-  searchUrl.searchParams.set(
-    'resources[options][unavailable_products]',
-    'show'
-  );
-
-
-  let suggestions;
-
 
   try {
-    suggestions =
-      await shopJson(
-        searchUrl.pathname +
-        searchUrl.search
-      );
+    const currency = await getCurrency();
+    const raw = [];
+
+    for (let page = 1; page <= 4; page++) {
+      const data = await shopJson(`/products.json?limit=250&page=${page}`);
+      const batch = data && Array.isArray(data.products) ? data.products : [];
+      raw.push(...batch);
+      if (batch.length < 250) break;
+    }
+
+    catalogCache = {
+      items: raw.filter((p) => p && p.handle).map((p) => toCatalogItem(p, currency)),
+      at: Date.now()
+    };
   } catch (error) {
-    console.error(
-      'Predictive search failed:',
-      error.message
-    );
-
-    return [];
+    // Keep serving the last good catalog if Shopify hiccups.
+    console.error('Catalog fetch failed:', error.message);
   }
 
+  return catalogCache.items;
+}
 
-  const matches =
-    suggestions &&
-    suggestions.resources &&
-    suggestions.resources
-      .results &&
-    Array.isArray(
-      suggestions.resources
-        .results.products
-    )
-      ? suggestions.resources
-          .results.products
-      : [];
-
-
-  const products = [];
-
-
-  for (
-    const match of
-      matches.slice(0, 5)
-  ) {
-
-    const handle =
-      match.handle ||
-      getHandleFromUrl(
-        match.url
-      );
-
-
-    if (!handle) {
-      continue;
-    }
-
-
-    try {
-
-      const product =
-        await shopJson(
-          `/products/${encodeURIComponent(
-            handle
-          )}.js`
-        );
-
-
-      products.push({
-
-        title:
-          product.title ||
-          match.title ||
-          '',
-
-
-        handle,
-
-
-        url:
-          `${PUBLIC_ORIGIN}/products/${encodeURIComponent(
-            handle
-          )}`,
-
-
-        image:
-          normalizeImage(
-            product
-              .featured_image ||
-            match.image ||
-            ''
-          ),
-
-
-        price:
-          moneyFromMinorUnits(
-            product.price_min !==
-              undefined
-              ? product.price_min
-              : product.price,
-
-            currency
-          ),
-
-
-        available:
-          Boolean(
-            product.available
-          ),
-
-
-        options:
-          buildOptions(
-            product
-          ),
-
-
-        variants:
-          (
-            Array.isArray(
-              product.variants
-            )
-              ? product.variants
-              : []
-          ).map(
-            (variant) => ({
-
-              id:
-                variant.id,
-
-
-              title:
-                variant.title,
-
-
-              available:
-                Boolean(
-                  variant.available
-                ),
-
-
-              price:
-                moneyFromMinorUnits(
-                  variant.price,
-                  currency
-                ),
-
-
-              options:
-                Array.isArray(
-                  variant.options
-                )
-                  ? variant.options
-                  : []
-            })
-          )
-      });
-
-    } catch (error) {
-
-      console.error(
-        `Product JSON failed for ${handle}:`,
-        error.message
-      );
-    }
+function catalogText(items) {
+  if (!items.length) {
+    return 'The live catalog could not be loaded right now. Do not recommend specific products; direct the shopper to WhatsApp.';
   }
 
+  return items
+    .map((p) => {
+      const parts = [
+        `handle=${p.handle}`,
+        `title=${p.title}`,
+        p.type ? `type=${p.type}` : null,
+        p.occasions.length ? `occasions=${p.occasions.join('/')}` : null,
+        isJacket(p) ? 'LOUNGE ONLY, never for sport' : null,
+        p.price ? `price=${p.price}` : null,
+        p.colours.length ? `colours=${p.colours.join('/')}` : null,
+        p.available
+          ? `in-stock sizes=${p.sizes.length ? p.sizes.join('/') : 'one size'}`
+          : 'SOLD OUT',
+        p.preorder ? 'PRE-ORDER' : null
+      ].filter(Boolean);
 
-  return products;
+      return '- ' + parts.join(' | ');
+    })
+    .join('\n');
 }
 
 
 // ==================================================
-// CLAUDE TOOL
+// DISPLAY GUARDS
+//
+// The model chooses the pieces, but the code enforces
+// Ebuka's rules so they hold even if the model slips:
+// no jackets in sport looks, socks and underwear in
+// every outfit, socks alongside any recommendation.
+// ==================================================
+
+function buildOutfits(input, catalog, userText) {
+  const byHandle = new Map(catalog.map((p) => [p.handle, p]));
+  const occasion = String((input && input.occasion) || '').toLowerCase();
+  const sport = SPORT_OCCASIONS.has(occasion) || SPORT_WORDS.test(userText);
+
+  const socks = catalog.filter((p) => p.available && isSocks(p));
+  const underwear = catalog.filter((p) => p.available && isUnderwear(p));
+
+  const requested = Array.isArray(input && input.outfits) ? input.outfits : [];
+  const outfits = [];
+
+  requested.slice(0, 3).forEach((outfit, index) => {
+    const seen = new Set();
+
+    const items = (Array.isArray(outfit.items) ? outfit.items : [])
+      .map((item) => {
+        const product = byHandle.get(String((item && item.handle) || '').trim());
+        if (!product || !product.available || seen.has(product.handle)) return null;
+        if (sport && isJacket(product)) return null;
+
+        seen.add(product.handle);
+        return { ...product, role: roleFor(product, item.role) };
+      })
+      .filter(Boolean);
+
+    const hasRole = (role) => items.some((item) => item.role === role);
+
+    if (!hasRole('underwear') && underwear.length) {
+      items.push({ ...underwear[index % underwear.length], role: 'underwear' });
+    }
+
+    if (!hasRole('socks') && socks.length) {
+      items.push({ ...socks[index % socks.length], role: 'socks' });
+    }
+
+    items.sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+
+    if (items.length >= 2) {
+      outfits.push({
+        name: String(outfit.name || `Look ${index + 1}`).slice(0, 40),
+        items
+      });
+    }
+  });
+
+  return outfits;
+}
+
+function buildProducts(input, catalog) {
+  const byHandle = new Map(catalog.map((p) => [p.handle, p]));
+  const handles = Array.isArray(input && input.handles) ? input.handles : [];
+
+  const list = uniqueList(handles.map((h) => String(h || '').trim()))
+    .map((handle) => byHandle.get(handle))
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (list.length && !list.some(isSocks)) {
+    const pair = catalog.find((p) => p.available && isSocks(p));
+    if (pair) list.push(pair);
+  }
+
+  return list;
+}
+
+function describeOutfits(outfits) {
+  if (!outfits.length) {
+    return 'Nothing could be shown: none of those handles are in stock or allowed for this occasion. Rebuild the outfits from the LIVE CATALOG.';
+  }
+
+  return (
+    'Shown to the shopper exactly as follows (describe these, nothing else):\n' +
+    outfits
+      .map(
+        (outfit) =>
+          `${outfit.name}: ` +
+          outfit.items.map((item) => `${item.title} (${item.role})`).join(', ')
+      )
+      .join('\n')
+  );
+}
+
+function describeProducts(products) {
+  if (!products.length) {
+    return 'Nothing could be shown: none of those handles exist in the LIVE CATALOG.';
+  }
+
+  return (
+    'Shown to the shopper: ' +
+    products.map((p) => p.title + (p.available ? '' : ' (sold out)')).join(', ')
+  );
+}
+
+// Safety net: if the model names products without showing them,
+// match catalog titles in the reply so every named item gets a picture.
+function productsNamedIn(reply, catalog) {
+  const text = String(reply || '').toLowerCase();
+
+  return catalog
+    .filter((p) => p.title && p.title.length >= 4 && text.includes(p.title.toLowerCase()))
+    .slice(0, 4);
+}
+
+
+// ==================================================
+// CLAUDE TOOLS
 // ==================================================
 
 const tools = [
   {
-    name:
-      'search_products',
-
+    name: 'show_outfits',
     description:
-      'Search the live AuraUP catalog for real current products. ' +
-      'Call this whenever a shopper asks about AuraUP products, product names, styles, colours, prices, sizes, variants, stock or availability. ' +
-      'Use only the returned catalog data and never invent products, prices, sizes or stock.',
-
+      'Display complete outfits to the shopper as picture cards, grouped by outfit. ' +
+      'Use this for every outfit, fit, look or "what should I wear" request. ' +
+      'Always send three outfits, each built from underwear through to socks.',
     input_schema: {
-      type:
-        'object',
-
+      type: 'object',
       properties: {
-        query: {
-          type:
-            'string',
-
-          description:
-            'Concise product search keywords, for example: black shorts, hoodie, cap, polo, trousers'
+        occasion: {
+          type: 'string',
+          enum: ['gym', 'tennis', 'running', 'training', 'sport', 'lounge', 'everyday', 'travel', 'evening', 'other']
+        },
+        outfits: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 3,
+          items: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Short outfit name, two to four words'
+              },
+              items: {
+                type: 'array',
+                minItems: 2,
+                maxItems: 6,
+                items: {
+                  type: 'object',
+                  properties: {
+                    handle: {
+                      type: 'string',
+                      description: 'Exact product handle from the LIVE CATALOG'
+                    },
+                    role: {
+                      type: 'string',
+                      enum: ROLE_ORDER
+                    }
+                  },
+                  required: ['handle', 'role']
+                }
+              }
+            },
+            required: ['name', 'items']
+          }
         }
       },
-
-      required:
-        ['query']
+      required: ['occasion', 'outfits']
+    }
+  },
+  {
+    name: 'show_products',
+    description:
+      'Display picture cards for the products you mention when the shopper is not asking for a full outfit. ' +
+      'Call it every time you name specific products.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        handles: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 4,
+          items: {
+            type: 'string',
+            description: 'Exact product handle from the LIVE CATALOG'
+          }
+        }
+      },
+      required: ['handles']
     }
   }
 ];
 
 
 // ==================================================
+// SYSTEM PROMPT
+// ==================================================
+
+function buildSystem(knowledge, catalog) {
+  return (
+    `You are the AuraUP shopping assistant on www.auraupstore.com.\n` +
+    `AuraUP is a Lagos-based luxury athleisure brand. Tagline: "Quiet Strength in Motion".\n` +
+    `Voice: quiet, confident, concise and premium. Never pushy. No emoji.\n\n` +
+
+    `CATALOG RULES:\n` +
+    `- The LIVE CATALOG below is every product on sale right now. Recommend only products listed there, using their exact handles.\n` +
+    `- Never invent products, prices, sizes, colours or stock. Only call a size available if it appears in that product's in-stock sizes.\n` +
+    `- Never recommend SOLD OUT products. If a product is marked PRE-ORDER, say so when you recommend it.\n` +
+    `- If a kind of product is not in the catalog, do not mention that kind of product at all.\n` +
+    `- Whenever you name specific products, you MUST show them with show_outfits or show_products so the shopper sees a picture of every item you mention.\n\n` +
+
+    `SOCKS:\n` +
+    `- AuraUP socks finish every look. Whenever you recommend products, include a pair of AuraUP socks too, unless socks are sold out.\n\n` +
+
+    `OUTFITS:\n` +
+    `- When the shopper asks for an outfit, a fit, a look, or what to wear for any activity or occasion, always build THREE complete outfits and show them with show_outfits.\n` +
+    `- Each outfit is complete from the inside out: underwear, bottoms, top, an outer layer when it suits the occasion, and socks.\n` +
+    `- Make the three outfits clearly different in pieces or colours. Underwear and socks may repeat if the choice is limited.\n` +
+    `- When products list occasions, prefer pieces whose occasions match the request.\n\n` +
+
+    `JACKETS:\n` +
+    `- Jackets are AuraUP's luxury lounge pieces. Use them only for lounge and relaxed, non-sport looks.\n` +
+    `- Never recommend a jacket for gym, tennis, running, training or any sport, not even as an extra. ` +
+    `For sport outfits, add a non-jacket outer layer only if one suits the activity; otherwise leave the outer layer out.\n\n` +
+
+    `WRITING THE REPLY:\n` +
+    `- After show_outfits, write one short opening line, then one short line per outfit giving its name and its pieces. Describe exactly what the tool result says was shown.\n` +
+    `- The pictures, names and prices appear under your text, so do not list links or repeat every price unless asked.\n` +
+    `- Write in plain text only. No Markdown: no ** bold, no # headings, no asterisks or bullet symbols.\n` +
+    `- Otherwise keep answers to a few sentences unless the shopper asks for more detail.\n\n` +
+
+    `STORE INFORMATION RULES:\n` +
+    `- Answer shipping, exchange, refund, sizing, contact and store questions only from BRAND FACTS and STORE INFO below.\n` +
+    `- If the answer is not there, do not guess. Direct the shopper to WhatsApp ${WHATSAPP} or ${EMAIL}.\n` +
+    `- Never promise a delivery date unless STORE INFO explicitly supports it.\n\n` +
+
+    `GENERAL RULES:\n` +
+    `- You may give brief styling, movement and general wellness guidance where useful.\n` +
+    `- Do not give medical, injury or detailed training-programme advice.\n` +
+    `- Never invent places, people, events or facts you cannot verify.\n\n` +
+
+    BRAND_FACTS + `\n` +
+
+    `STORE INFO:\n` +
+    (knowledge ||
+      `No verified store information is currently available. For store-policy questions, direct the shopper to WhatsApp ${WHATSAPP} or ${EMAIL}.`) +
+    `\n\n` +
+
+    `LIVE CATALOG:\n` +
+    catalogText(catalog)
+  );
+}
+
+
+// ==================================================
 // SERVERLESS API HANDLER
 // ==================================================
 
-export default async function handler(
-  req,
-  res
-) {
+export default async function handler(req, res) {
+  const origin = String(req.headers.origin || '').replace(/\/+$/, '');
 
-  const origin =
-    String(
-      req.headers.origin || ''
-    ).replace(/\/+$/, '');
-
-
-  // -------------------------------
-  // CORS
-  // -------------------------------
-
-  if (
-    origin &&
-    ALLOWED_ORIGINS.has(
-      origin
-    )
-  ) {
-    res.setHeader(
-      'Access-Control-Allow-Origin',
-      origin
-    );
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
   }
 
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 'no-store');
 
-  res.setHeader(
-    'Vary',
-    'Origin'
-  );
-
-
-  res.setHeader(
-    'Access-Control-Allow-Methods',
-    'POST, OPTIONS'
-  );
-
-
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type'
-  );
-
-
-  res.setHeader(
-    'Cache-Control',
-    'no-store'
-  );
-
-
-  // -------------------------------
-  // CORS PREFLIGHT
-  // -------------------------------
-
-  if (
-    req.method === 'OPTIONS'
-  ) {
-
-    if (
-      origin &&
-      !ALLOWED_ORIGINS.has(
-        origin
-      )
-    ) {
-      return res
-        .status(403)
-        .end();
+  if (req.method === 'OPTIONS') {
+    if (origin && !ALLOWED_ORIGINS.has(origin)) {
+      return res.status(403).end();
     }
-
-    return res
-      .status(204)
-      .end();
+    return res.status(204).end();
   }
 
-
-  // -------------------------------
-  // POST ONLY
-  // -------------------------------
-
-  if (
-    req.method !== 'POST'
-  ) {
-    return res
-      .status(405)
-      .json({
-        error:
-          'method_not_allowed'
-      });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'method_not_allowed' });
   }
 
-
-  // -------------------------------
-  // BLOCK UNKNOWN WEBSITES
-  // -------------------------------
-
-  if (
-    origin &&
-    !ALLOWED_ORIGINS.has(
-      origin
-    )
-  ) {
-    return res
-      .status(403)
-      .json({
-        error:
-          'origin_not_allowed'
-      });
+  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    return res.status(403).json({ error: 'origin_not_allowed' });
   }
 
-
-  // -------------------------------
-  // CHECK ANTHROPIC KEY
-  // -------------------------------
-
-  if (
-    !process.env
-      .ANTHROPIC_API_KEY
-  ) {
-
-    console.error(
-      'Missing ANTHROPIC_API_KEY'
-    );
-
-    return res
-      .status(500)
-      .json({
-        error:
-          'server_configuration_error',
-
-        reply:
-          'The AuraUP assistant is temporarily unavailable.'
-      });
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.error('Missing ANTHROPIC_API_KEY');
+    return res.status(500).json({
+      error: 'server_configuration_error',
+      reply: 'The AuraUP assistant is temporarily unavailable.'
+    });
   }
-
 
   try {
-
-    const body =
-      req.body || {};
-
-
-    const incoming =
-      Array.isArray(
-        body.messages
-      )
-        ? body.messages
-        : null;
-
+    const body = req.body || {};
+    const incoming = Array.isArray(body.messages) ? body.messages : null;
 
     if (!incoming) {
-      return res
-        .status(400)
-        .json({
-          error:
-            'messages_required'
-        });
+      return res.status(400).json({ error: 'messages_required' });
     }
 
+    const [knowledge, catalog] = await Promise.all([getKnowledge(), getCatalog()]);
 
-    // -------------------------------
-    // LOAD LIVE STORE INFORMATION
-    // -------------------------------
+    const system = buildSystem(knowledge, catalog);
 
-    const knowledge =
-      await getKnowledge();
+    const convo = incoming.slice(-12).map((message) => ({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: String(message.content || '').slice(0, 2000)
+    }));
 
+    const lastUser = [...convo].reverse().find((m) => m.role === 'user');
+    const userText = lastUser ? lastUser.content : '';
 
-    // -------------------------------
-    // AURAUP ASSISTANT INSTRUCTIONS
-    // -------------------------------
-
-    const system =
-
-      `You are the AuraUP shopping assistant on www.auraupstore.com.\n` +
-
-      `AuraUP is a Lagos-based luxury athleisure brand. Tagline: "Quiet Strength in Motion".\n` +
-
-      `Voice: quiet, confident, concise and premium. Keep replies short and elegant. Never be pushy. Do not use emoji.\n\n` +
-
-
-      `CATALOG RULES:\n` +
-
-      `- Whenever the shopper asks about any AuraUP product, product name, style, colour, price, size, variant, stock or availability, you MUST call search_products first.\n` +
-
-      `- Use only data returned by search_products. Never invent products, prices, sizes, colours or availability.\n` +
-
-      `- Do not say a size or variant is available unless its returned variant has available=true.\n` +
-
-      `- Recommend no more than 3 products at a time.\n` +
-
-      `- If there is no matching product, say you could not find a matching live product rather than guessing.\n\n` +
-
-
-      `STORE INFORMATION RULES:\n` +
-
-      `- Answer shipping, exchange, refund, sizing, contact and store-information questions only from STORE INFO below.\n` +
-
-      `- If the answer is not present in STORE INFO, do not guess. Direct the shopper to WhatsApp ${WHATSAPP} or ${EMAIL}.\n` +
-
-      `- Never promise a delivery date unless STORE INFO explicitly supports it.\n\n` +
-
-
-      `GENERAL RULES:\n` +
-
-      `- You may give brief styling, movement and general wellness guidance where useful.\n` +
-
-      `- Do not give medical, injury or detailed training-program advice.\n` +
-
-      `- Never invent places, people, events or facts you cannot verify.\n` +
-
-      `- Treat BRAND FACTS below as verified truth you always know. Use it for store address, hours, contact and brand-story questions.\n` +
-
-      `- Write in plain text only. No Markdown: do not use ** for bold, no # headings, no asterisks or bullet symbols. Use short plain sentences.\n` +
-
-      `- Keep the answer to a few sentences unless the shopper clearly asks for more detail.\n\n` +
-
-      BRAND_FACTS + `\n` +
-
-      `STORE INFO:\n` +
-
-      (
-        knowledge ||
-
-        `No verified store information is currently available. ` +
-        `For store-policy questions, direct the shopper to WhatsApp ${WHATSAPP} or ${EMAIL}.`
-      );
-
-
-    // -------------------------------
-    // KEEP LAST 12 CHAT MESSAGES
-    // -------------------------------
-
-    let convo =
-      incoming
-        .slice(-12)
-        .map(
-          (message) => ({
-
-            role:
-              message.role ===
-                'assistant'
-                ? 'assistant'
-                : 'user',
-
-            content:
-              String(
-                message.content || ''
-              )
-          })
-        );
-
-
+    let outfits = [];
     let products = [];
     let reply = '';
 
-
-    // -------------------------------
-    // CLAUDE + TOOL LOOP
-    // -------------------------------
-
-    for (
-      let step = 0;
-      step < 4;
-      step++
-    ) {
-
-      const response =
-        await anthropic
-          .messages
-          .create({
-
-            model:
-              MODEL,
-
-            max_tokens:
-              700,
-
-            system,
-
-            tools,
-
-            messages:
-              convo
-          });
-
-
-      const toolUses =
-        response.content.filter(
-          (block) =>
-            block.type ===
-            'tool_use'
-        );
-
-
-      // -------------------------------
-      // CLAUDE REQUESTED PRODUCT SEARCH
-      // -------------------------------
-
-      if (
-        toolUses.length > 0
-      ) {
-
-        convo.push({
-          role:
-            'assistant',
-
-          content:
-            response.content
-        });
-
-
-        const toolResults = [];
-
-
-        for (
-          const block of
-            toolUses
-        ) {
-
-          if (
-            block.name !==
-            'search_products'
-          ) {
-
-            toolResults.push({
-
-              type:
-                'tool_result',
-
-              tool_use_id:
-                block.id,
-
-              content:
-                'Unsupported tool.',
-
-              is_error:
-                true
-            });
-
-            continue;
+    // Usually two rounds: show the pieces, then write the text.
+    for (let step = 0; step < 4; step++) {
+      const response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 1200,
+        system: [
+          {
+            type: 'text',
+            text: system,
+            cache_control: { type: 'ephemeral' }
           }
+        ],
+        tools,
+        messages: convo
+      });
 
+      const toolUses = response.content.filter((block) => block.type === 'tool_use');
 
-          let found = [];
-
-
-          try {
-
-            found =
-              await searchProducts(
-
-                block.input &&
-                block.input.query
-
-                  ? block.input
-                      .query
-
-                  : ''
-              );
-
-          } catch (error) {
-
-            console.error(
-              'Product search error:',
-              error.message
-            );
-          }
-
-
-          products =
-            products.concat(
-              found
-            );
-
-
-          toolResults.push({
-
-            type:
-              'tool_result',
-
-            tool_use_id:
-              block.id,
-
-            content:
-              JSON.stringify(
-                found
-              )
-          });
-        }
-
-
-        convo.push({
-
-          role:
-            'user',
-
-          content:
-            toolResults
-        });
-
-
-        continue;
+      if (toolUses.length === 0) {
+        reply = response.content
+          .filter((block) => block.type === 'text')
+          .map((block) => block.text)
+          .join('\n')
+          .trim();
+        break;
       }
 
+      convo.push({ role: 'assistant', content: response.content });
 
-      // -------------------------------
-      // FINAL TEXT RESPONSE
-      // -------------------------------
+      const toolResults = toolUses.map((block) => {
+        if (block.name === 'show_outfits') {
+          const built = buildOutfits(block.input, catalog, userText);
+          outfits = outfits.concat(built).slice(0, 3);
 
-      reply =
-        response.content
+          return {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: describeOutfits(built)
+          };
+        }
 
-          .filter(
-            (block) =>
-              block.type ===
-              'text'
-          )
+        if (block.name === 'show_products') {
+          const built = buildProducts(block.input, catalog);
+          products = products.concat(built);
 
-          .map(
-            (block) =>
-              block.text
-          )
+          return {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: describeProducts(built)
+          };
+        }
 
-          .join('\n')
+        return {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: 'Unsupported tool.',
+          is_error: true
+        };
+      });
 
-          .trim();
-
-
-      break;
+      convo.push({ role: 'user', content: toolResults });
     }
 
+    // Deduplicate single product cards.
+    const seen = new Set();
+    let cards = products.filter((p) => {
+      if (!p.url || seen.has(p.url)) return false;
+      seen.add(p.url);
+      return true;
+    });
 
-    // -------------------------------
-    // REMOVE DUPLICATE PRODUCT CARDS
-    // -------------------------------
+    if (!outfits.length && !cards.length && reply) {
+      cards = productsNamedIn(reply, catalog);
+    }
 
-    const seen =
-      new Set();
-
-
-    const cards =
-      products
-
-        .filter(
-          (product) => {
-
-            if (
-              !product.url ||
-              seen.has(
-                product.url
-              )
-            ) {
-              return false;
-            }
-
-
-            seen.add(
-              product.url
-            );
-
-
-            return true;
-          }
-        )
-
-        .slice(0, 3);
-
-
-    // -------------------------------
-    // SEND RESPONSE TO WIDGET
-    // -------------------------------
-
-    return res
-      .status(200)
-      .json({
-
-        reply:
-          reply ||
-
-          `I can connect you with our team on WhatsApp ${WHATSAPP} for that.`,
-
-        products:
-          cards
-      });
-
-
+    return res.status(200).json({
+      reply: reply || `I can connect you with our team on WhatsApp ${WHATSAPP} for that.`,
+      outfits,
+      products: cards.slice(0, 5)
+    });
   } catch (error) {
+    console.error('AuraUP assistant error:', error);
 
-    console.error(
-      'AuraUP assistant error:',
-      error
-    );
-
-
-    return res
-      .status(500)
-      .json({
-
-        error:
-          'assistant_error',
-
-        reply:
-          `Sorry, something went wrong on our end. Please reach us on WhatsApp ${WHATSAPP}.`
-      });
+    return res.status(500).json({
+      error: 'assistant_error',
+      reply: `Sorry, something went wrong on our end. Please reach us on WhatsApp ${WHATSAPP}.`
+    });
   }
 }
