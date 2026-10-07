@@ -609,6 +609,261 @@
 
 
   // ==========================================
+  // ADD TO BAG (product cards + outfits)
+  // ==========================================
+
+  var SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', 'XXL', '3XL', 'XXXL', '4XL'];
+  var productCache = {};
+
+  var BUY_CSS = [
+    '.auaa-card a{color:inherit;text-decoration:none;}',
+    '.auaa-card-media{display:block;flex-shrink:0;}',
+    '.auaa-card-name{display:block;}',
+    '.auaa-buy{margin-top:8px;}',
+    '.auaa-buy-btn,.auaa-look-btn{background:#1a1a1a;color:#fff;border:0;border-radius:40px;padding:8px 14px;font-family:Montserrat,system-ui,sans-serif;font-size:.5rem;font-weight:500;letter-spacing:.16em;text-transform:uppercase;cursor:pointer;}',
+    '.auaa-look-btn{width:100%;padding:11px 14px;}',
+    '.auaa-buy-btn[disabled],.auaa-look-btn[disabled]{opacity:.55;cursor:default;}',
+    '.auaa-buy-label{margin:0 0 6px;font-size:.5rem;letter-spacing:.14em;text-transform:uppercase;color:rgba(42,42,42,.55);line-height:1.5;}',
+    '.auaa-sizes{display:flex;flex-wrap:wrap;gap:5px;}',
+    '.auaa-size{min-width:30px;height:28px;padding:0 7px;margin:0;background:#fff;border:1px solid rgba(42,42,42,.22);border-radius:6px;font-family:Montserrat,system-ui,sans-serif;font-size:.55rem;font-weight:500;color:#1a1a1a;cursor:pointer;}',
+    '.auaa-size:hover:not([disabled]){background:#1a1a1a;color:#fff;border-color:#1a1a1a;}',
+    '.auaa-size[disabled]{opacity:.35;text-decoration:line-through;cursor:not-allowed;}',
+    '.auaa-size.is-busy{opacity:.5;pointer-events:none;}',
+    '.auaa-added{display:inline-block;margin:0 10px 0 0;font-size:.55rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:#1a1a1a;line-height:1.6;}',
+    '.auaa-viewbag{background:none;border:0;padding:0;margin:0;font-family:Montserrat,system-ui,sans-serif;font-size:.55rem;letter-spacing:.08em;text-transform:uppercase;text-decoration:underline;color:#1a1a1a;cursor:pointer;}',
+    '.auaa-buy-msg{margin:6px 0 0;font-size:.55rem;line-height:1.5;color:#a33;}',
+    '.auaa-tile-link{display:block;color:inherit;text-decoration:none;}',
+    '.auaa-tile-add{margin-top:6px;background:none;border:1px solid rgba(42,42,42,.25);border-radius:40px;padding:5px 10px;font-family:Montserrat,system-ui,sans-serif;font-size:.48rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#1a1a1a;cursor:pointer;}',
+    '.auaa-tile-add.is-done{background:#1a1a1a;border-color:#1a1a1a;color:#fff;}',
+    '.auaa-look{margin-top:14px;padding-top:12px;border-top:1px solid rgba(42,42,42,.08);}',
+    '.auaa-look-panel:not(:empty){margin-top:10px;}',
+    '.auaa-look-note{margin:6px 0 0;font-size:.55rem;line-height:1.5;color:rgba(42,42,42,.6);}'
+  ].join('');
+
+  (function () {
+    var style = document.createElement('style');
+    style.textContent = BUY_CSS;
+    document.head.appendChild(style);
+  })();
+
+  function escAttr(value) { return esc(value).replace(/"/g, '&quot;'); }
+
+  function handleFromUrl(url) {
+    try {
+      var match = new URL(url, location.origin).pathname.match(/\/products\/([^\/?#]+)/);
+      return match ? match[1] : null;
+    } catch (error) { return null; }
+  }
+
+  function loadProduct(url) {
+    var handle = handleFromUrl(url);
+    if (!handle) return Promise.reject(new Error('No product handle'));
+    if (!productCache[handle]) {
+      productCache[handle] = fetch('/products/' + handle + '.js', { headers: { Accept: 'application/json' } })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(function (error) { delete productCache[handle]; throw error; });
+    }
+    return productCache[handle];
+  }
+
+  function sizeIndex(product) {
+    return (product.options || []).map(function (o) {
+      return String(typeof o === 'string' ? o : o.name).toLowerCase();
+    }).indexOf('size');
+  }
+
+  function rankSize(value) {
+    var i = SIZE_ORDER.indexOf(String(value).toUpperCase());
+    return i === -1 ? 99 : i;
+  }
+
+  // One entry per size (or per option value), with the first in-stock variant for it
+  function choicesFor(product) {
+    var idx = sizeIndex(product), use = idx > -1 ? idx : 0;
+    var map = {}, list = [];
+    product.variants.forEach(function (v) {
+      var label = v.options && v.options[use];
+      if (label == null) return;
+      if (!map[label]) { map[label] = { label: label, variant: null }; list.push(map[label]); }
+      if (v.available && !map[label].variant) map[label].variant = v;
+    });
+    if (idx > -1) list.sort(function (a, b) { return rankSize(a.label) - rankSize(b.label); });
+    return list;
+  }
+
+  function addItems(items) {
+    return fetch('/cart/add.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ items: items })
+    })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw j; return j; }); })
+      .then(function (result) {
+        return fetch('/cart.js', { headers: { Accept: 'application/json' } })
+          .then(function (r) { return r.json(); })
+          .then(function (cart) {
+            document.querySelectorAll('#lhCartCount, [data-cart-count]').forEach(function (el) {
+              el.textContent = cart.item_count;
+              if (el.id === 'lhCartCount') el.style.display = cart.item_count ? 'flex' : 'none';
+            });
+            document.dispatchEvent(new CustomEvent('au:cart-updated', { detail: cart }));
+            return result;
+          });
+      });
+  }
+
+  function viewBag() {
+    close();
+    if (typeof window.openCartDrawer === 'function') window.openCartDrawer();
+    else window.location.href = '/cart';
+  }
+
+  function renderSizes(box, list, label, onPick) {
+    box.innerHTML = '<p class="auaa-buy-label">' + esc(label) + '</p><div class="auaa-sizes"></div>';
+    var wrap = box.querySelector('.auaa-sizes');
+    list.forEach(function (option) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'auaa-size';
+      chip.textContent = option.label;
+      if (!option.variant) { chip.disabled = true; chip.title = 'Sold out'; }
+      chip.addEventListener('click', function () { if (option.variant) onPick(option.variant, chip); });
+      wrap.appendChild(chip);
+    });
+    box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  function showDone(box, text) {
+    box.innerHTML = '<span class="auaa-added">' + esc(text) + '</span><button type="button" class="auaa-viewbag">View bag</button>';
+    box.querySelector('.auaa-viewbag').addEventListener('click', viewBag);
+  }
+
+  function showMsg(box, text) {
+    var msg = box.querySelector('.auaa-buy-msg');
+    if (!msg) { msg = document.createElement('p'); msg.className = 'auaa-buy-msg'; box.appendChild(msg); }
+    msg.textContent = text;
+  }
+
+  function variantLabel(v) { return v.title && v.title !== 'Default Title' ? ' \u00b7 ' + v.title : ''; }
+
+  // Add one product: straight in if it has one variant, otherwise show its sizes
+  function buyOne(box, url, name, onAdded) {
+    box.innerHTML = '<p class="auaa-buy-label">Loading sizes</p>';
+    loadProduct(url).then(function (product) {
+      function pick(variant, chip) {
+        if (chip) chip.classList.add('is-busy');
+        addItems([{ id: variant.id, quantity: 1 }])
+          .then(function () {
+            showDone(box, 'Added' + (name ? ' \u00b7 ' + name : '') + variantLabel(variant));
+            if (onAdded) onAdded();
+          })
+          .catch(function (error) {
+            if (chip) chip.classList.remove('is-busy');
+            showMsg(box, (error && error.description) || 'Could not add. Please try again.');
+          });
+      }
+      if (product.variants.length === 1) {
+        if (product.variants[0].available) pick(product.variants[0]);
+        else box.innerHTML = '<p class="auaa-buy-msg">Sold out</p>';
+        return;
+      }
+      renderSizes(box, choicesFor(product), (name ? name + ' \u00b7 ' : '') + (sizeIndex(product) > -1 ? 'Select size' : 'Select option'), pick);
+    }).catch(function () {
+      box.innerHTML = '<p class="auaa-buy-msg">Could not load sizes. Please open the product.</p>';
+    });
+  }
+
+  function mountCardBuy(box, url) {
+    box.innerHTML = '<button type="button" class="auaa-buy-btn">Add to bag</button>';
+    box.querySelector('.auaa-buy-btn').addEventListener('click', function () { buyOne(box, url, ''); });
+  }
+
+  // Outfit block: "+ Add" on each piece, plus "Add full look" in one size
+  function mountLook(block, row) {
+    var look = document.createElement('div');
+    look.className = 'auaa-look';
+    look.innerHTML = '<button type="button" class="auaa-look-btn">Add full look to bag</button><div class="auaa-look-panel"></div>';
+    block.appendChild(look);
+
+    var panel = look.querySelector('.auaa-look-panel');
+    var lookBtn = look.querySelector('.auaa-look-btn');
+    var tiles = Array.prototype.slice.call(row.querySelectorAll('.auaa-tile'));
+
+    function markAdded(tile) {
+      var b = tile.querySelector('.auaa-tile-add');
+      b.textContent = 'Added';
+      b.classList.add('is-done');
+    }
+
+    tiles.forEach(function (tile) {
+      tile.querySelector('.auaa-tile-add').addEventListener('click', function () {
+        buyOne(panel, tile.__item.url, tile.__item.title, function () { markAdded(tile); });
+      });
+    });
+
+    lookBtn.addEventListener('click', function () {
+      panel.innerHTML = '<p class="auaa-buy-label">Loading sizes</p>';
+      Promise.all(tiles.map(function (tile) {
+        return loadProduct(tile.__item.url).then(
+          function (p) { return { tile: tile, item: tile.__item, product: p }; },
+          function () { return { tile: tile, item: tile.__item, product: null }; }
+        );
+      })).then(function (rows) {
+        // every size offered by any piece in the look
+        var map = {}, sizes = [];
+        rows.forEach(function (r) {
+          if (!r.product) return;
+          var idx = sizeIndex(r.product);
+          if (idx < 0) return;
+          r.product.variants.forEach(function (v) {
+            var s = v.options[idx];
+            if (!map[s]) { map[s] = { label: s, variant: null }; sizes.push(map[s]); }
+            if (v.available) map[s].variant = v;
+          });
+        });
+        sizes.sort(function (a, b) { return rankSize(a.label) - rankSize(b.label); });
+
+        function addLook(size, chip) {
+          var items = [], missing = [], added = [];
+          rows.forEach(function (r) {
+            var chosen = null;
+            if (r.product) {
+              var idx = sizeIndex(r.product);
+              for (var i = 0; i < r.product.variants.length; i++) {
+                var v = r.product.variants[i];
+                if (v.available && (idx < 0 || v.options[idx] === size)) { chosen = v; break; }
+              }
+            }
+            if (chosen) { items.push({ id: chosen.id, quantity: 1 }); added.push(r); }
+            else missing.push(r.item.title);
+          });
+          if (!items.length) { showMsg(panel, 'None of these pieces are available' + (size ? ' in ' + size : '') + '.'); return; }
+          if (chip) chip.classList.add('is-busy');
+          addItems(items).then(function () {
+            added.forEach(function (r) { markAdded(r.tile); });
+            showDone(panel, 'Added ' + items.length + (items.length === 1 ? ' piece' : ' pieces') + (size ? ' \u00b7 ' + size : ''));
+            if (missing.length) {
+              var note = document.createElement('p');
+              note.className = 'auaa-look-note';
+              note.textContent = 'Not available' + (size ? ' in ' + size : '') + ': ' + missing.join(', ') + '. Tap + Add on those pieces to pick another size.';
+              panel.appendChild(note);
+            }
+            lookBtn.textContent = 'Look added';
+            lookBtn.disabled = true;
+          }).catch(function (error) {
+            if (chip) chip.classList.remove('is-busy');
+            showMsg(panel, (error && error.description) || 'Could not add. Please try again.');
+          });
+        }
+
+        if (!sizes.length) { addLook(null); return; }
+        renderSizes(panel, sizes, 'Choose your size for the full look', function (v, chip) { addLook(chip.textContent, chip); });
+      });
+    });
+  }
+
+
+  // ==========================================
   // SINGLE PRODUCT CARDS
   // ==========================================
 
@@ -621,20 +876,25 @@
     products.forEach(function (product) {
       if (!product || !product.url) return;
 
-      var link = document.createElement('a');
-      link.className = 'auaa-card';
-      link.href = product.url;
-      link.target = '_top';
+      var card = document.createElement('div');
+      card.className = 'auaa-card';
 
-      link.innerHTML =
-        productImage(product, 'auaa-card-img') +
+      card.innerHTML =
+        '<a class="auaa-card-media" href="' + escAttr(product.url) + '" target="_top">' +
+          productImage(product, 'auaa-card-img') +
+        '</a>' +
         '<div class="auaa-card-info">' +
-          '<p class="auaa-card-name">' + esc(product.title) + '</p>' +
+          '<a class="auaa-card-name" href="' + escAttr(product.url) + '" target="_top">' + esc(product.title) + '</a>' +
           '<p class="auaa-card-price">' + esc(product.price) + '</p>' +
-          (product.available ? '' : '<span class="auaa-card-oos">Sold out</span>') +
+          (product.available
+            ? '<div class="auaa-buy"></div>'
+            : '<span class="auaa-card-oos">Sold out</span>') +
         '</div>';
 
-      wrap.appendChild(link);
+      var buy = card.querySelector('.auaa-buy');
+      if (buy) mountCardBuy(buy, product.url);
+
+      wrap.appendChild(card);
     });
 
     if (wrap.children.length) {
@@ -666,17 +926,19 @@
       outfit.items.forEach(function (item) {
         if (!item || !item.url) return;
 
-        var tile = document.createElement('a');
+        var tile = document.createElement('div');
         tile.className = 'auaa-tile';
-        tile.href = item.url;
-        tile.target = '_top';
+        tile.__item = item;
 
         tile.innerHTML =
-          productImage(item, 'auaa-tile-img') +
-          '<p class="auaa-tile-role">' + esc(ROLE_LABELS[item.role] || '') + '</p>' +
-          '<p class="auaa-tile-name">' + esc(item.title) + '</p>' +
-          '<p class="auaa-tile-price">' + esc(item.price) + '</p>' +
-          (item.preorder ? '<p class="auaa-tile-pre">Pre-order</p>' : '');
+          '<a class="auaa-tile-link" href="' + escAttr(item.url) + '" target="_top">' +
+            productImage(item, 'auaa-tile-img') +
+            '<p class="auaa-tile-role">' + esc(ROLE_LABELS[item.role] || '') + '</p>' +
+            '<p class="auaa-tile-name">' + esc(item.title) + '</p>' +
+            '<p class="auaa-tile-price">' + esc(item.price) + '</p>' +
+            (item.preorder ? '<p class="auaa-tile-pre">Pre-order</p>' : '') +
+          '</a>' +
+          '<button type="button" class="auaa-tile-add">+ Add</button>';
 
         row.appendChild(tile);
       });
@@ -687,6 +949,7 @@
         '<p class="auaa-outfit-name">' + esc(outfit.name) + '</p>' +
         (outfit.note ? '<p class="auaa-outfit-note">' + esc(outfit.note) + '</p>' : '');
       block.appendChild(row);
+      mountLook(block, row);
       wrap.appendChild(block);
     });
 
